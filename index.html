@@ -339,8 +339,9 @@
     initializeFirebaseAuth();
 
     function initializeTheme() {
-      const storedTheme = localStorage.getItem("switchbotTheme");
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const storedTheme = getStoredTheme();
+      const themeMedia = window.matchMedia?.("(prefers-color-scheme: dark)");
+      const prefersDark = Boolean(themeMedia?.matches);
       const initialTheme = storedTheme || (prefersDark ? "dark" : "light");
 
       setTheme(initialTheme);
@@ -350,12 +351,12 @@
           ? "light"
           : "dark";
 
-        localStorage.setItem("switchbotTheme", nextTheme);
+        storeTheme(nextTheme);
         setTheme(nextTheme);
       });
 
-      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", event => {
-        if (localStorage.getItem("switchbotTheme")) {
+      themeMedia?.addEventListener("change", event => {
+        if (getStoredTheme()) {
           return;
         }
 
@@ -370,6 +371,22 @@
       themeButton.textContent = isDark ? "Light" : "Dark";
       themeButton.setAttribute("aria-pressed", String(isDark));
       applyChartTheme();
+    }
+
+    function getStoredTheme() {
+      try {
+        return localStorage.getItem("switchbotTheme");
+      } catch {
+        return null;
+      }
+    }
+
+    function storeTheme(theme) {
+      try {
+        localStorage.setItem("switchbotTheme", theme);
+      } catch {
+        // Theme persistence is nice to have; the toggle still works without it.
+      }
     }
 
     function applyChartTheme() {
@@ -536,9 +553,13 @@
     function createCharts() {
       temperatureChart = createLineChart("temperatureChart", "Temperature", "C");
       humidityChart = createLineChart("humidityChart", "Humidity", "%");
+      applyChartTheme();
     }
 
     function createLineChart(canvasId, label, unit) {
+      const grid = cssVar("--chart-grid");
+      const muted = cssVar("--muted");
+
       return new Chart(document.getElementById(canvasId), {
         type: "line",
         data: {
@@ -558,6 +579,7 @@
               labels: {
                 boxWidth: 12,
                 boxHeight: 12,
+                color: cssVar("--ink"),
               },
             },
             tooltip: {
@@ -571,10 +593,11 @@
             x: {
               type: "linear",
               grid: {
-                color: "#edf1ef",
+                color: grid,
               },
               ticks: {
                 callback: value => formatXAxisTick(value),
+                color: muted,
                 maxTicksLimit: 8,
               },
             },
@@ -583,9 +606,13 @@
               title: {
                 display: true,
                 text: `${label} (${unit})`,
+                color: muted,
               },
               grid: {
-                color: "#edf1ef",
+                color: grid,
+              },
+              ticks: {
+                color: muted,
               },
             },
           },
@@ -678,6 +705,12 @@
 
     function setStatus(message) {
       statusEl.textContent = message;
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement)
+        .getPropertyValue(name)
+        .trim();
     }
 
     function numberOrNull(value) {
