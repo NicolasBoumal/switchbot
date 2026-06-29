@@ -302,6 +302,8 @@
     let temperatureChart = null;
     let humidityChart = null;
     let isAuthorized = false;
+    let hasTriedAutoSignIn = false;
+    let hasAutoLoadedInitialRange = false;
 
     const loadButtons = renderRangeButtons();
     createCharts();
@@ -323,11 +325,11 @@
       });
 
       onAuthStateChanged(auth, user => {
-        handleAuthState(user, db).catch(showError);
+        handleAuthState(user, auth, provider, db).catch(showError);
       });
     }
 
-    async function handleAuthState(user, db) {
+    async function handleAuthState(user, auth, provider, db) {
       setClientKey("");
       setWorkerBase("");
       isAuthorized = false;
@@ -341,8 +343,10 @@
 
       if (!user) {
         summaryEl.textContent = "";
+        hasAutoLoadedInitialRange = false;
         setStatus("Sign in to load readings");
         setLoading(true);
+        tryAutoSignIn(auth, provider);
         return;
       }
 
@@ -370,6 +374,38 @@
       isAuthorized = true;
       setStatus(`Signed in as ${user.email}`);
       setLoading(false);
+
+      if (!hasAutoLoadedInitialRange) {
+        hasAutoLoadedInitialRange = true;
+        await loadHistory(RANGES[0]);
+      }
+    }
+
+    function tryAutoSignIn(auth, provider) {
+      if (hasTriedAutoSignIn) {
+        return;
+      }
+
+      hasTriedAutoSignIn = true;
+      setStatus("Opening sign-in...");
+
+      signInWithPopup(auth, provider).catch(error => {
+        if (
+          error?.code === "auth/popup-closed-by-user" ||
+          error?.code === "auth/cancelled-popup-request"
+        ) {
+          setStatus("Sign in to load readings");
+          return;
+        }
+
+        if (error?.code === "auth/popup-blocked") {
+          setStatus("Popup blocked. Use Sign in to load readings.");
+          setLoading(false);
+          return;
+        }
+
+        showError(error);
+      });
     }
 
     async function loadHistory({ label, days, loader }) {
