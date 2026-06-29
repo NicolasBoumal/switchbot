@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SwitchBot history</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8f8;
+      --panel: #ffffff;
+      --ink: #17201c;
+      --muted: #66726d;
+      --line: #d8dfdc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, sans-serif;
+      line-height: 1.4;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 36px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.5rem, 2.5vw, 2.25rem);
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+
+    button {
+      border: 1px solid #b9c4bf;
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      padding: 0.48rem 0.75rem;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .auth-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status,
+    .range {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .dashboard {
+      display: grid;
+      gap: 18px;
+    }
+
+    .chart-panel,
+    .latest-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 2px rgb(20 30 25 / 6%);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: 0;
+    }
+
+    .chart-box {
+      height: 330px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th,
+    td {
+      border-top: 1px solid var(--line);
+      padding: 0.55rem 0.4rem;
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .error {
+      color: #a12720;
+    }
+
+    @media (max-width: 700px) {
+      main {
+        width: min(100% - 20px, 1180px);
+        padding-top: 18px;
+      }
+
+      header,
+      .toolbar,
+      .panel-header {
+        align-items: start;
+        flex-direction: column;
+      }
+
+      .chart-box {
+        height: 280px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SwitchBot history</h1>
+      <div class="auth-actions">
+        <button id="signInButton" type="button">Sign in</button>
+        <button id="signOutButton" type="button" hidden>Sign out</button>
+        <div class="status" id="status">Sign in to load readings</div>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <div class="button-group" id="rangeButtons"></div>
+      <div class="range" id="summary"></div>
+    </div>
+
+    <section class="dashboard">
+      <section class="chart-panel" aria-labelledby="temperatureTitle">
+        <div class="panel-header">
+          <h2 id="temperatureTitle">Temperature</h2>
+          <div class="range" id="temperatureRange"></div>
+        </div>
+        <div class="chart-box">
+          <canvas id="temperatureChart"></canvas>
+        </div>
+      </section>
+
+      <section class="chart-panel" aria-labelledby="humidityTitle">
+        <div class="panel-header">
+          <h2 id="humidityTitle">Humidity</h2>
+          <div class="range" id="humidityRange"></div>
+        </div>
+        <div class="chart-box">
+          <canvas id="humidityChart"></canvas>
+        </div>
+      </section>
+
+      <section class="latest-panel" aria-labelledby="latestTitle">
+        <div class="panel-header">
+          <h2 id="latestTitle">Latest logged reading</h2>
+        </div>
+        <div id="latestReading"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth,
+      GoogleAuthProvider,
+      onAuthStateChanged,
+      signInWithPopup,
+      signOut,
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+    import {
+      doc,
+      getDoc,
+      getFirestore,
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+    import {
+      getReadingsLast24Hours,
+      getReadingsLast7Days,
+      getReadingsLast30Days,
+      setClientKey,
+      setWorkerBase,
+    } from "./switchbotapi.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBwLI4d70iDuAaf7fNwn0WX-kny01nmT5k",
+      authDomain: "common-77900.firebaseapp.com",
+      projectId: "common-77900",
+      storageBucket: "common-77900.firebasestorage.app",
+      messagingSenderId: "667782892801",
+      appId: "1:667782892801:web:a30ef02706b7c385b51f00",
+    };
+
+    const SENSORS = [
+      {
+        name: "Terrace",
+        color: "#c43f2f",
+        temperatureKey: "terrace_temp_c",
+        humidityKey: "terrace_humidity_pct",
+      },
+      {
+        name: "Kitchen",
+        color: "#2374ab",
+        temperatureKey: "kitchen_temp_c",
+        humidityKey: "kitchen_humidity_pct",
+      },
+      {
+        name: "Bedroom",
+        color: "#238b45",
+        temperatureKey: "bedroom_temp_c",
+        humidityKey: "bedroom_humidity_pct",
+      },
+    ];
+
+    const RANGES = [
+      {
+        label: "last 24 hours",
+        buttonText: "Load last 24 hours",
+        days: 1,
+        loader: () => getReadingsLast24Hours({ limit: 2000 }),
+      },
+      {
+        label: "last 7 days",
+        buttonText: "Load last 7 days",
+        days: 7,
+        loader: () => getReadingsLast7Days({ limit: 12000 }),
+      },
+      {
+        label: "last 30 days",
+        buttonText: "Load last 30 days",
+        days: 30,
+        loader: () => getReadingsLast30Days({ limit: 45000 }),
+      },
+    ];
+
+    const rangeButtonsEl = document.getElementById("rangeButtons");
+    const signInButton = document.getElementById("signInButton");
+    const signOutButton = document.getElementById("signOutButton");
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const latestReadingEl = document.getElementById("latestReading");
+    const temperatureRangeEl = document.getElementById("temperatureRange");
+    const humidityRangeEl = document.getElementById("humidityRange");
+
+    let rows = [];
+    let currentRangeDays = 1;
+    let temperatureChart = null;
+    let humidityChart = null;
+    let isAuthorized = false;
+
+    const loadButtons = renderRangeButtons();
+    createCharts();
+    setLoading(true);
+    initializeFirebaseAuth();
+
+    function initializeFirebaseAuth() {
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const provider = new GoogleAuthProvider();
+
+      signInButton.addEventListener("click", () => {
+        signInWithPopup(auth, provider).catch(showError);
+      });
+
+      signOutButton.addEventListener("click", () => {
+        signOut(auth).catch(showError);
+      });
+
+      onAuthStateChanged(auth, user => {
+        handleAuthState(user, db).catch(showError);
+      });
+    }
+
+    async function handleAuthState(user, db) {
+      setClientKey("");
+      setWorkerBase("");
+      isAuthorized = false;
+      rows = [];
+      updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
+      updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
+      renderLatestReading();
+
+      signInButton.hidden = Boolean(user);
+      signOutButton.hidden = !user;
+
+      if (!user) {
+        summaryEl.textContent = "";
+        setStatus("Sign in to load readings");
+        setLoading(true);
+        return;
+      }
+
+      setStatus("Loading access...");
+      const secretSnapshot = await getDoc(doc(db, "secrets", "switchbot"));
+
+      if (!secretSnapshot.exists()) {
+        throw new Error("Missing Firestore document secrets/switchbot.");
+      }
+
+      const secret = secretSnapshot.data();
+      const clientKey = secret.CLIENTKEY;
+      const workerUrl = secret.WORKERURL;
+
+      if (typeof clientKey !== "string" || clientKey.length === 0) {
+        throw new Error("Missing Firestore field secrets/switchbot.CLIENTKEY.");
+      }
+
+      if (typeof workerUrl !== "string" || workerUrl.length === 0) {
+        throw new Error("Missing Firestore field secrets/switchbot.WORKERURL.");
+      }
+
+      setClientKey(clientKey);
+      setWorkerBase(workerUrl);
+      isAuthorized = true;
+      setStatus(`Signed in as ${user.email}`);
+      setLoading(false);
+    }
+
+    async function loadHistory({ label, days, loader }) {
+      if (!isAuthorized) {
+        setStatus("Sign in to load readings");
+        return;
+      }
+
+      setLoading(true);
+      currentRangeDays = days;
+      setStatus(`Loading ${label}...`);
+
+      const data = await loader();
+      rows = (data.rows ?? [])
+        .map(normalizeRow)
+        .filter(row => Number.isFinite(row.timeMs))
+        .sort((a, b) => a.timeMs - b.timeMs);
+
+      updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
+      updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
+      renderLatestReading();
+
+      const first = rows.at(0);
+      const last = rows.at(-1);
+      summaryEl.textContent = rows.length && first && last
+        ? `${rows.length} readings from ${formatTime(first.timeMs)} to ${formatTime(last.timeMs)}`
+        : "No readings found.";
+
+      setStatus(`Updated ${formatTime(Date.now())}`);
+      setLoading(false);
+    }
+
+    function renderRangeButtons() {
+      return RANGES.map(range => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = range.buttonText;
+        button.addEventListener("click", () => {
+          loadHistory(range).catch(showError);
+        });
+        rangeButtonsEl.append(button);
+        return button;
+      });
+    }
+
+    function createCharts() {
+      temperatureChart = createLineChart("temperatureChart", "Temperature", "C");
+      humidityChart = createLineChart("humidityChart", "Humidity", "%");
+    }
+
+    function createLineChart(canvasId, label, unit) {
+      return new Chart(document.getElementById(canvasId), {
+        type: "line",
+        data: {
+          datasets: [],
+        },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          responsive: true,
+          interaction: {
+            intersect: false,
+            mode: "nearest",
+          },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: {
+                boxWidth: 12,
+                boxHeight: 12,
+              },
+            },
+            tooltip: {
+              callbacks: {
+                title: items => items.length ? formatDateTime(items[0].parsed.x) : "",
+                label: item => `${item.dataset.label}: ${item.parsed.y.toFixed(1)} ${unit}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              grid: {
+                color: "#edf1ef",
+              },
+              ticks: {
+                callback: value => formatXAxisTick(value),
+                maxTicksLimit: 8,
+              },
+            },
+            y: {
+              position: "right",
+              title: {
+                display: true,
+                text: `${label} (${unit})`,
+              },
+              grid: {
+                color: "#edf1ef",
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function updateChart(chart, sensorValueKey, unit, rangeEl) {
+      const allValues = [];
+
+      chart.data.datasets = SENSORS.map(sensor => {
+        const data = rows
+          .map(row => ({
+            x: row.timeMs,
+            y: numberOrNull(row[sensor[sensorValueKey]]),
+          }))
+          .filter(point => point.y !== null);
+
+        allValues.push(...data.map(point => point.y));
+
+        return {
+          label: sensor.name,
+          data,
+          borderColor: sensor.color,
+          backgroundColor: sensor.color,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          spanGaps: true,
+          tension: 0.25,
+        };
+      });
+
+      rangeEl.textContent = allValues.length
+        ? `${Math.min(...allValues).toFixed(1)}-${Math.max(...allValues).toFixed(1)} ${unit}`
+        : "";
+
+      chart.update();
+    }
+
+    function renderLatestReading() {
+      const latest = rows.at(-1);
+
+      if (!latest) {
+        latestReadingEl.innerHTML = "<p>No readings found.</p>";
+        return;
+      }
+
+      const cells = SENSORS.map(sensor => `
+        <tr>
+          <td>${sensor.name}</td>
+          <td>${formatValue(latest[sensor.temperatureKey], "C", 1)}</td>
+          <td>${formatValue(latest[sensor.humidityKey], "%", 0)}</td>
+        </tr>
+      `).join("");
+
+      latestReadingEl.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Sensor</th>
+              <th>Temperature</th>
+              <th>Humidity</th>
+            </tr>
+          </thead>
+          <tbody>${cells}</tbody>
+        </table>
+      `;
+    }
+
+    function normalizeRow(row) {
+      return {
+        ...row,
+        timeMs: Number(row.sampled_at_ms),
+      };
+    }
+
+    function showError(error) {
+      setStatus("Error");
+      summaryEl.textContent = "";
+      latestReadingEl.innerHTML = `<p class="error">${escapeHtml(error.stack || String(error))}</p>`;
+      setLoading(false);
+    }
+
+    function setLoading(isLoading) {
+      loadButtons.forEach(button => {
+        button.disabled = isLoading;
+      });
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function numberOrNull(value) {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatValue(value, unit, digits) {
+      const number = numberOrNull(value);
+      return number === null ? "-" : `${number.toFixed(digits)} ${unit}`;
+    }
+
+    function formatTime(timeMs) {
+      return new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(timeMs));
+    }
+
+    function formatXAxisTick(timeMs) {
+      if (currentRangeDays <= 1) {
+        return formatTime(timeMs);
+      }
+
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(timeMs));
+    }
+
+    function formatDateTime(timeMs) {
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "short",
+        timeStyle: "medium",
+      }).format(new Date(timeMs));
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    window.addEventListener("beforeunload", () => {
+      temperatureChart?.destroy();
+      humidityChart?.destroy();
+    });
+  </script>
+</body>
+</html>
