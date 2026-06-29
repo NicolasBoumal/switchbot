@@ -30,7 +30,7 @@
       --button-bg: #202a26;
       --button-border: #50625a;
       --button-hover: #293630;
-      --chart-grid: #2a3732;
+      --chart-grid: #202824;
       --shadow: rgb(0 0 0 / 22%);
       --error: #ff9288;
     }
@@ -276,18 +276,21 @@
       {
         name: "Terrace",
         color: "#c43f2f",
+        darkColor: "#ff776c",
         temperatureKey: "terrace_temp_c",
         humidityKey: "terrace_humidity_pct",
       },
       {
         name: "Kitchen",
         color: "#2374ab",
+        darkColor: "#61bfff",
         temperatureKey: "kitchen_temp_c",
         humidityKey: "kitchen_humidity_pct",
       },
       {
         name: "Bedroom",
         color: "#238b45",
+        darkColor: "#68df91",
         temperatureKey: "bedroom_temp_c",
         humidityKey: "bedroom_humidity_pct",
       },
@@ -405,6 +408,17 @@
         chart.options.scales.y.grid.color = grid;
         chart.options.scales.y.ticks.color = muted;
         chart.options.scales.y.title.color = muted;
+        chart.data.datasets.forEach(dataset => {
+          const sensor = SENSORS.find(item => item.name === dataset.label);
+
+          if (!sensor) {
+            return;
+          }
+
+          const color = sensorChartColor(sensor);
+          dataset.borderColor = color;
+          dataset.backgroundColor = color;
+        });
         chart.update();
       });
     }
@@ -636,9 +650,9 @@
         return {
           label: sensor.name,
           data,
-          borderColor: sensor.color,
-          backgroundColor: sensor.color,
-          borderWidth: 2,
+          borderColor: sensorChartColor(sensor),
+          backgroundColor: sensorChartColor(sensor),
+          borderWidth: 2.5,
           pointRadius: 0,
           pointHoverRadius: 4,
           spanGaps: true,
@@ -711,6 +725,12 @@
       return getComputedStyle(document.documentElement)
         .getPropertyValue(name)
         .trim();
+    }
+
+    function sensorChartColor(sensor) {
+      return document.documentElement.dataset.theme === "dark"
+        ? sensor.darkColor
+        : sensor.color;
     }
 
     function numberOrNull(value) {
