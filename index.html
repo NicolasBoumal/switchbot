@@ -12,6 +12,27 @@
       --ink: #17201c;
       --muted: #66726d;
       --line: #d8dfdc;
+      --button-bg: #ffffff;
+      --button-border: #b9c4bf;
+      --button-hover: #eef3f1;
+      --chart-grid: #edf1ef;
+      --shadow: rgb(20 30 25 / 6%);
+      --error: #a12720;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #101412;
+      --panel: #181f1c;
+      --ink: #eef4f1;
+      --muted: #a9b8b1;
+      --line: #32403a;
+      --button-bg: #202a26;
+      --button-border: #50625a;
+      --button-hover: #293630;
+      --chart-grid: #2a3732;
+      --shadow: rgb(0 0 0 / 22%);
+      --error: #ff9288;
     }
 
     * {
@@ -48,13 +69,17 @@
     }
 
     button {
-      border: 1px solid #b9c4bf;
+      border: 1px solid var(--button-border);
       border-radius: 6px;
-      background: #ffffff;
+      background: var(--button-bg);
       color: var(--ink);
       cursor: pointer;
       font: inherit;
       padding: 0.48rem 0.75rem;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--button-hover);
     }
 
     button:disabled {
@@ -100,7 +125,7 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
-      box-shadow: 0 1px 2px rgb(20 30 25 / 6%);
+      box-shadow: 0 1px 2px var(--shadow);
     }
 
     .panel-header {
@@ -146,7 +171,7 @@
     }
 
     .error {
-      color: #a12720;
+      color: var(--error);
     }
 
     @media (max-width: 700px) {
@@ -173,6 +198,7 @@
     <header>
       <h1>SwitchBot history</h1>
       <div class="auth-actions">
+        <button id="themeButton" type="button" aria-pressed="false">Dark</button>
         <button id="signInButton" type="button">Sign in</button>
         <button id="signOutButton" type="button" hidden>Sign out</button>
         <div class="status" id="status">Sign in to load readings</div>
@@ -289,6 +315,7 @@
     ];
 
     const rangeButtonsEl = document.getElementById("rangeButtons");
+    const themeButton = document.getElementById("themeButton");
     const signInButton = document.getElementById("signInButton");
     const signOutButton = document.getElementById("signOutButton");
     const statusEl = document.getElementById("status");
@@ -305,10 +332,65 @@
     let hasTriedAutoSignIn = false;
     let hasAutoLoadedInitialRange = false;
 
+    initializeTheme();
     const loadButtons = renderRangeButtons();
     createCharts();
     setLoading(true);
     initializeFirebaseAuth();
+
+    function initializeTheme() {
+      const storedTheme = localStorage.getItem("switchbotTheme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const initialTheme = storedTheme || (prefersDark ? "dark" : "light");
+
+      setTheme(initialTheme);
+
+      themeButton.addEventListener("click", () => {
+        const nextTheme = document.documentElement.dataset.theme === "dark"
+          ? "light"
+          : "dark";
+
+        localStorage.setItem("switchbotTheme", nextTheme);
+        setTheme(nextTheme);
+      });
+
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", event => {
+        if (localStorage.getItem("switchbotTheme")) {
+          return;
+        }
+
+        setTheme(event.matches ? "dark" : "light");
+      });
+    }
+
+    function setTheme(theme) {
+      const isDark = theme === "dark";
+
+      document.documentElement.dataset.theme = isDark ? "dark" : "light";
+      themeButton.textContent = isDark ? "Light" : "Dark";
+      themeButton.setAttribute("aria-pressed", String(isDark));
+      applyChartTheme();
+    }
+
+    function applyChartTheme() {
+      [temperatureChart, humidityChart].forEach(chart => {
+        if (!chart) {
+          return;
+        }
+
+        const ink = cssVar("--ink");
+        const muted = cssVar("--muted");
+        const grid = cssVar("--chart-grid");
+
+        chart.options.plugins.legend.labels.color = ink;
+        chart.options.scales.x.grid.color = grid;
+        chart.options.scales.x.ticks.color = muted;
+        chart.options.scales.y.grid.color = grid;
+        chart.options.scales.y.ticks.color = muted;
+        chart.options.scales.y.title.color = muted;
+        chart.update();
+      });
+    }
 
     function initializeFirebaseAuth() {
       const app = initializeApp(firebaseConfig);
