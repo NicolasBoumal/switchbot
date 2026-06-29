@@ -4,6 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SwitchBot history</title>
+  <script>
+    (() => {
+      try {
+        const storedTheme = localStorage.getItem("switchbotTheme");
+        const themeMedia = window.matchMedia?.("(prefers-color-scheme: dark)");
+        const prefersDark = Boolean(themeMedia?.matches);
+        const theme = storedTheme || (prefersDark ? "dark" : "light");
+
+        document.documentElement.dataset.theme = theme;
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
   <style>
     :root {
       color-scheme: light;
