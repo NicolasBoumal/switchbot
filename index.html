@@ -310,6 +310,18 @@
       },
     ];
 
+    const METEOSWISS_STATION = {
+      label: "MeteoSwiss Pully",
+      urls: [
+        "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_recent.csv",
+        "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_now.csv",
+      ],
+      station: "PUY",
+      temperatureKey: "tre200s0",
+      color: "#6d5bd0",
+      darkColor: "#c4b5ff",
+    };
+
     const RANGES = [
       {
         label: "last 24 hours",
@@ -348,6 +360,7 @@
     let isAuthorized = false;
     let hasTriedAutoSignIn = false;
     let hasAutoLoadedInitialRange = false;
+    let meteoSwissRows = [];
 
     initializeTheme();
     const loadButtons = renderRangeButtons();
@@ -425,13 +438,17 @@
         chart.data.datasets.forEach(dataset => {
           const sensor = SENSORS.find(item => item.name === dataset.label);
 
-          if (!sensor) {
-            return;
+          if (sensor) {
+            const color = sensorChartColor(sensor);
+            dataset.borderColor = color;
+            dataset.backgroundColor = color;
           }
 
-          const color = sensorChartColor(sensor);
-          dataset.borderColor = color;
-          dataset.backgroundColor = color;
+          if (dataset.label === METEOSWISS_STATION.label) {
+            const color = meteoSwissChartColor();
+            dataset.borderColor = color;
+            dataset.backgroundColor = color;
+          }
         });
         chart.update();
       });
@@ -461,6 +478,7 @@
       setWorkerBase("");
       isAuthorized = false;
       rows = [];
+      meteoSwissRows = [];
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
       renderLatestReading();
@@ -545,11 +563,26 @@
       currentRangeDays = days;
       setStatus(`Loading ${label}...`);
 
+      const loadedAt = Date.now();
       const data = await loader();
       rows = (data.rows ?? [])
         .map(normalizeRow)
         .filter(row => Number.isFinite(row.timeMs))
         .sort((a, b) => a.timeMs - b.timeMs);
+
+      let meteoSwissError = null;
+
+      if (days === 1) {
+        try {
+          meteoSwissRows = await loadMeteoSwissReadings(loadedAt - 24 * 60 * 60 * 1000, loadedAt);
+        } catch (error) {
+          meteoSwissRows = [];
+          meteoSwissError = error;
+          console.warn(error);
+        }
+      } else {
+        meteoSwissRows = [];
+      }
 
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
@@ -561,7 +594,11 @@
         ? `${rows.length} readings from ${formatTime(first.timeMs)} to ${formatTime(last.timeMs)}`
         : "No readings found.";
 
-      setStatus(`Updated ${formatTime(Date.now())}`);
+      setStatus(
+        meteoSwissError
+          ? `Updated ${formatTime(loadedAt)} (MeteoSwiss unavailable)`
+          : `Updated ${formatTime(loadedAt)}`
+      );
       setLoading(false);
     }
 
@@ -674,6 +711,27 @@
         };
       });
 
+      if (chart === temperatureChart && currentRangeDays === 1) {
+        const data = meteoSwissRows.map(row => ({
+          x: row.timeMs,
+          y: row.temperatureC,
+        }));
+
+        allValues.push(...data.map(point => point.y));
+        chart.data.datasets.push({
+          label: METEOSWISS_STATION.label,
+          data,
+          borderColor: meteoSwissChartColor(),
+          backgroundColor: meteoSwissChartColor(),
+          borderDash: [6, 4],
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          spanGaps: true,
+          tension: 0.25,
+        });
+      }
+
       rangeEl.textContent = allValues.length
         ? `${Math.min(...allValues).toFixed(1)}-${Math.max(...allValues).toFixed(1)} ${unit}`
         : "";
@@ -718,6 +776,71 @@
       };
     }
 
+    async function loadMeteoSwissReadings(fromMs, toMs) {
+      const texts = await Promise.all(
+        METEOSWISS_STATION.urls.map(async url => {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`Could not load ${METEOSWISS_STATION.label} data: HTTP ${response.status}.`);
+          }
+
+          return response.text();
+        })
+      );
+
+      const readingsByTime = new Map();
+
+      texts.flatMap(parseCsv)
+        .filter(row => row.station_abbr === METEOSWISS_STATION.station)
+        .forEach(row => {
+          const timeMs = parseMeteoSwissTimestamp(row.reference_timestamp);
+          const temperatureC = numberOrNull(row[METEOSWISS_STATION.temperatureKey]);
+
+          if (
+            Number.isFinite(timeMs) &&
+            timeMs >= fromMs &&
+            timeMs <= toMs &&
+            temperatureC !== null
+          ) {
+            readingsByTime.set(timeMs, { timeMs, temperatureC });
+          }
+        });
+
+      return Array.from(readingsByTime.values())
+        .sort((a, b) => a.timeMs - b.timeMs);
+    }
+
+    function parseCsv(text) {
+      const lines = text.trim().split(/\r?\n/).filter(Boolean);
+
+      if (lines.length < 2) {
+        return [];
+      }
+
+      const headers = lines[0].split(";");
+
+      return lines.slice(1).map(line => {
+        const values = line.split(";");
+
+        return Object.fromEntries(
+          headers.map((header, index) => [header, values[index] ?? ""])
+        );
+      });
+    }
+
+    function parseMeteoSwissTimestamp(value) {
+      const match = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/.exec(value);
+
+      if (!match) {
+        return NaN;
+      }
+
+      const [, day, month, year, hour, minute] = match.map(Number);
+
+      return Date.UTC(year, month - 1, day, hour, minute);
+    }
+
     function showError(error) {
       setStatus("Error");
       summaryEl.textContent = "";
@@ -745,6 +868,12 @@
       return document.documentElement.dataset.theme === "dark"
         ? sensor.darkColor
         : sensor.color;
+    }
+
+    function meteoSwissChartColor() {
+      return document.documentElement.dataset.theme === "dark"
+        ? METEOSWISS_STATION.darkColor
+        : METEOSWISS_STATION.color;
     }
 
     function numberOrNull(value) {
