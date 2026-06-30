@@ -612,9 +612,12 @@
         meteoSwissRows = [];
       }
 
-      if (days === 1) {
+      if (days === 1 || days === 7 || days === 30) {
         try {
-          forecastRows = await loadMeteoSwissForecast(loadedAt, loadedAt + 24 * 60 * 60 * 1000);
+          forecastRows = await loadMeteoSwissForecast(
+            loadedAt,
+            loadedAt + days * 24 * 60 * 60 * 1000
+          );
         } catch (error) {
           forecastRows = [];
           forecastError = error;
@@ -772,7 +775,7 @@
         });
       }
 
-      if (chart === temperatureChart && currentRangeDays === 1 && forecastRows.length > 0) {
+      if (chart === temperatureChart && forecastRows.length > 0) {
         const data = forecastRows.map(row => ({
           x: row.timeMs,
           y: row.temperatureC,
