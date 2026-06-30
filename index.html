@@ -184,32 +184,6 @@
       font-weight: 600;
     }
 
-    .sensor-toggle {
-      align-items: center;
-      display: inline-flex;
-      gap: 8px;
-    }
-
-    .sensor-toggle input {
-      accent-color: var(--sensor-color);
-      height: 1rem;
-      margin: 0;
-      width: 1rem;
-    }
-
-    .sensor-swatch {
-      background: var(--sensor-color);
-      border-radius: 999px;
-      display: inline-block;
-      height: 0.75rem;
-      width: 0.75rem;
-    }
-
-    tr.is-hidden {
-      color: var(--muted);
-      opacity: 0.58;
-    }
-
     .error {
       color: var(--error);
     }
@@ -314,7 +288,6 @@
 
     const SENSORS = [
       {
-        id: "terrace",
         name: "Terrace",
         color: "#c43f2f",
         darkColor: "#ff776c",
@@ -322,7 +295,6 @@
         humidityKey: "terrace_humidity_pct",
       },
       {
-        id: "kitchen",
         name: "Kitchen",
         color: "#2374ab",
         darkColor: "#61bfff",
@@ -330,7 +302,6 @@
         humidityKey: "kitchen_humidity_pct",
       },
       {
-        id: "bedroom",
         name: "Bedroom",
         color: "#238b45",
         darkColor: "#68df91",
@@ -377,7 +348,6 @@
     let isAuthorized = false;
     let hasTriedAutoSignIn = false;
     let hasAutoLoadedInitialRange = false;
-    const visibleSensors = new Set(SENSORS.map(sensor => sensor.id));
 
     initializeTheme();
     const loadButtons = renderRangeButtons();
@@ -418,7 +388,6 @@
       themeButton.textContent = isDark ? "Light" : "Dark";
       themeButton.setAttribute("aria-pressed", String(isDark));
       applyChartTheme();
-      updateSensorToggleColors();
     }
 
     function getStoredTheme() {
@@ -682,7 +651,7 @@
     function updateChart(chart, sensorValueKey, unit, rangeEl) {
       const allValues = [];
 
-      chart.data.datasets = SENSORS.filter(isSensorVisible).map(sensor => {
+      chart.data.datasets = SENSORS.map(sensor => {
         const data = rows
           .map(row => ({
             x: row.timeMs,
@@ -715,25 +684,16 @@
     function renderLatestReading() {
       const latest = rows.at(-1);
 
+      if (!latest) {
+        latestReadingEl.innerHTML = "<p>No readings found.</p>";
+        return;
+      }
+
       const cells = SENSORS.map(sensor => `
-        <tr class="${isSensorVisible(sensor) ? "" : "is-hidden"}">
-          <td>
-            <label
-              class="sensor-toggle"
-              data-sensor-id="${sensor.id}"
-              style="--sensor-color: ${sensorChartColor(sensor)}"
-            >
-              <input
-                type="checkbox"
-                data-sensor-id="${sensor.id}"
-                ${isSensorVisible(sensor) ? "checked" : ""}
-              />
-              <span class="sensor-swatch" aria-hidden="true"></span>
-              <span>${sensor.name}</span>
-            </label>
-          </td>
-          <td>${latest ? formatValue(latest[sensor.temperatureKey], "C", 1) : "-"}</td>
-          <td>${latest ? formatValue(latest[sensor.humidityKey], "%", 0) : "-"}</td>
+        <tr>
+          <td>${sensor.name}</td>
+          <td>${formatValue(latest[sensor.temperatureKey], "C", 1)}</td>
+          <td>${formatValue(latest[sensor.humidityKey], "%", 0)}</td>
         </tr>
       `).join("");
 
@@ -748,24 +708,7 @@
           </thead>
           <tbody>${cells}</tbody>
         </table>
-        ${latest ? "" : "<p>No readings found.</p>"}
       `;
-
-      latestReadingEl.querySelectorAll("input[data-sensor-id]").forEach(input => {
-        input.addEventListener("change", () => {
-          setSensorVisible(input.dataset.sensorId, input.checked);
-        });
-      });
-    }
-
-    function updateSensorToggleColors() {
-      latestReadingEl.querySelectorAll(".sensor-toggle").forEach(toggle => {
-        const sensor = SENSORS.find(item => item.id === toggle.dataset.sensorId);
-
-        if (sensor) {
-          toggle.style.setProperty("--sensor-color", sensorChartColor(sensor));
-        }
-      });
     }
 
     function normalizeRow(row) {
@@ -802,22 +745,6 @@
       return document.documentElement.dataset.theme === "dark"
         ? sensor.darkColor
         : sensor.color;
-    }
-
-    function isSensorVisible(sensor) {
-      return visibleSensors.has(sensor.id);
-    }
-
-    function setSensorVisible(sensorId, isVisible) {
-      if (isVisible) {
-        visibleSensors.add(sensorId);
-      } else {
-        visibleSensors.delete(sensorId);
-      }
-
-      updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
-      updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
-      renderLatestReading();
     }
 
     function numberOrNull(value) {
