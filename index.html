@@ -331,6 +331,16 @@
       darkColor: "#c4b5ff",
     };
 
+    const METEOSWISS_FORECAST = {
+      label: "MeteoSwiss forecast Morges",
+      pointId: "10312",
+      pointTypeId: "1",
+      collectionUrl: "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-local-forecasting/items",
+      temperatureKey: "tre200h0",
+      color: "#8b5a2b",
+      darkColor: "#f5c16c",
+    };
+
     const RANGES = [
       {
         label: "last 24 hours",
@@ -370,6 +380,7 @@
     let hasTriedAutoSignIn = false;
     let hasAutoLoadedInitialRange = false;
     let meteoSwissRows = [];
+    let forecastRows = [];
 
     initializeTheme();
     const loadButtons = renderRangeButtons();
@@ -458,6 +469,12 @@
             dataset.borderColor = color;
             dataset.backgroundColor = color;
           }
+
+          if (dataset.label === METEOSWISS_FORECAST.label) {
+            const color = forecastChartColor();
+            dataset.borderColor = color;
+            dataset.backgroundColor = color;
+          }
         });
         chart.update();
       });
@@ -488,6 +505,7 @@
       isAuthorized = false;
       rows = [];
       meteoSwissRows = [];
+      forecastRows = [];
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
       renderLatestReading();
@@ -580,6 +598,7 @@
         .sort((a, b) => a.timeMs - b.timeMs);
 
       let meteoSwissError = null;
+      let forecastError = null;
 
       if (days === 1 || days === 7 || days === 30) {
         try {
@@ -593,6 +612,18 @@
         meteoSwissRows = [];
       }
 
+      if (days === 1) {
+        try {
+          forecastRows = await loadMeteoSwissForecast(loadedAt, loadedAt + 24 * 60 * 60 * 1000);
+        } catch (error) {
+          forecastRows = [];
+          forecastError = error;
+          console.warn(error);
+        }
+      } else {
+        forecastRows = [];
+      }
+
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
       renderLatestReading();
@@ -604,8 +635,8 @@
         : "No readings found.";
 
       setStatus(
-        meteoSwissError
-          ? `Updated ${formatTime(loadedAt)} (MeteoSwiss unavailable)`
+        meteoSwissError || forecastError
+          ? `Updated ${formatTime(loadedAt)} (some MeteoSwiss data unavailable)`
           : `Updated ${formatTime(loadedAt)}`
       );
       setLoading(false);
@@ -741,6 +772,27 @@
         });
       }
 
+      if (chart === temperatureChart && currentRangeDays === 1 && forecastRows.length > 0) {
+        const data = forecastRows.map(row => ({
+          x: row.timeMs,
+          y: row.temperatureC,
+        }));
+
+        allValues.push(...data.map(point => point.y));
+        chart.data.datasets.push({
+          label: METEOSWISS_FORECAST.label,
+          data,
+          borderColor: forecastChartColor(),
+          backgroundColor: forecastChartColor(),
+          borderDash: [2, 5],
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          spanGaps: true,
+          tension: 0.25,
+        });
+      }
+
       rangeEl.textContent = allValues.length
         ? `${Math.min(...allValues).toFixed(1)}-${Math.max(...allValues).toFixed(1)} ${unit}`
         : "";
@@ -825,6 +877,67 @@
         .sort((a, b) => a.timeMs - b.timeMs);
     }
 
+    async function loadMeteoSwissForecast(fromMs, toMs) {
+      const assetUrl = await findLatestForecastAssetUrl();
+      const response = await fetch(assetUrl);
+
+      if (!response.ok) {
+        throw new Error(`Could not load ${METEOSWISS_FORECAST.label} data: HTTP ${response.status}.`);
+      }
+
+      const rowsByTime = new Map();
+
+      parseCsv(await response.text())
+        .filter(row =>
+          row.point_id === METEOSWISS_FORECAST.pointId &&
+          row.point_type_id === METEOSWISS_FORECAST.pointTypeId
+        )
+        .forEach(row => {
+          const timeMs = parseCompactUtcTimestamp(row.Date);
+          const temperatureC = numberOrNull(row[METEOSWISS_FORECAST.temperatureKey]);
+
+          if (
+            Number.isFinite(timeMs) &&
+            timeMs > fromMs &&
+            timeMs <= toMs &&
+            temperatureC !== null
+          ) {
+            rowsByTime.set(timeMs, { timeMs, temperatureC });
+          }
+        });
+
+      return Array.from(rowsByTime.values())
+        .sort((a, b) => a.timeMs - b.timeMs);
+    }
+
+    async function findLatestForecastAssetUrl() {
+      const today = new Date();
+      const candidateItemIds = [
+        formatCompactUtcDate(today),
+        formatCompactUtcDate(new Date(today.getTime() - 24 * 60 * 60 * 1000)),
+      ];
+
+      for (const itemId of candidateItemIds) {
+        const response = await fetch(`${METEOSWISS_FORECAST.collectionUrl}/${itemId}-ch`);
+
+        if (!response.ok) {
+          continue;
+        }
+
+        const item = await response.json();
+        const asset = Object.entries(item.assets ?? {})
+          .filter(([name]) => name.endsWith(`.${METEOSWISS_FORECAST.temperatureKey}.csv`))
+          .sort(([a], [b]) => b.localeCompare(a))
+          .at(0);
+
+        if (asset) {
+          return asset[1].href;
+        }
+      }
+
+      throw new Error(`Could not find ${METEOSWISS_FORECAST.label} data.`);
+    }
+
     function parseCsv(text) {
       const lines = text.trim().split(/\r?\n/).filter(Boolean);
 
@@ -853,6 +966,26 @@
       const [, day, month, year, hour, minute] = match.map(Number);
 
       return Date.UTC(year, month - 1, day, hour, minute);
+    }
+
+    function parseCompactUtcTimestamp(value) {
+      const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value);
+
+      if (!match) {
+        return NaN;
+      }
+
+      const [, year, month, day, hour, minute] = match.map(Number);
+
+      return Date.UTC(year, month - 1, day, hour, minute);
+    }
+
+    function formatCompactUtcDate(date) {
+      return [
+        date.getUTCFullYear(),
+        String(date.getUTCMonth() + 1).padStart(2, "0"),
+        String(date.getUTCDate()).padStart(2, "0"),
+      ].join("");
     }
 
     function showError(error) {
@@ -888,6 +1021,12 @@
       return document.documentElement.dataset.theme === "dark"
         ? METEOSWISS_STATION.darkColor
         : METEOSWISS_STATION.color;
+    }
+
+    function forecastChartColor() {
+      return document.documentElement.dataset.theme === "dark"
+        ? METEOSWISS_FORECAST.darkColor
+        : METEOSWISS_FORECAST.color;
     }
 
     function numberOrNull(value) {
