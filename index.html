@@ -312,12 +312,21 @@
 
     const METEOSWISS_STATION = {
       label: "MeteoSwiss Pully",
-      urls: [
-        "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_recent.csv",
-        "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_now.csv",
-      ],
       station: "PUY",
-      temperatureKey: "tre200s0",
+      tenMinute: {
+        urls: [
+          "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_recent.csv",
+          "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_now.csv",
+        ],
+        temperatureKey: "tre200s0",
+      },
+      hourly: {
+        urls: [
+          "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_h_recent.csv",
+          "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_h_now.csv",
+        ],
+        temperatureKey: "tre200h0",
+      },
       color: "#6d5bd0",
       darkColor: "#c4b5ff",
     };
@@ -572,9 +581,9 @@
 
       let meteoSwissError = null;
 
-      if (days === 1) {
+      if (days === 1 || days === 7 || days === 30) {
         try {
-          meteoSwissRows = await loadMeteoSwissReadings(loadedAt - 24 * 60 * 60 * 1000, loadedAt);
+          meteoSwissRows = await loadMeteoSwissReadings(days, loadedAt);
         } catch (error) {
           meteoSwissRows = [];
           meteoSwissError = error;
@@ -711,7 +720,7 @@
         };
       });
 
-      if (chart === temperatureChart && currentRangeDays === 1) {
+      if (chart === temperatureChart && meteoSwissRows.length > 0) {
         const data = meteoSwissRows.map(row => ({
           x: row.timeMs,
           y: row.temperatureC,
@@ -776,9 +785,14 @@
       };
     }
 
-    async function loadMeteoSwissReadings(fromMs, toMs) {
+    async function loadMeteoSwissReadings(days, toMs) {
+      const fromMs = toMs - days * 24 * 60 * 60 * 1000;
+      const source = days === 1
+        ? METEOSWISS_STATION.tenMinute
+        : METEOSWISS_STATION.hourly;
+
       const texts = await Promise.all(
-        METEOSWISS_STATION.urls.map(async url => {
+        source.urls.map(async url => {
           const response = await fetch(url);
 
           if (!response.ok) {
@@ -795,7 +809,7 @@
         .filter(row => row.station_abbr === METEOSWISS_STATION.station)
         .forEach(row => {
           const timeMs = parseMeteoSwissTimestamp(row.reference_timestamp);
-          const temperatureC = numberOrNull(row[METEOSWISS_STATION.temperatureKey]);
+          const temperatureC = numberOrNull(row[source.temperatureKey]);
 
           if (
             Number.isFinite(timeMs) &&
