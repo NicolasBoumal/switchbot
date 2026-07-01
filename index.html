@@ -615,7 +615,7 @@
       if (days === 1 || days === 7 || days === 30) {
         try {
           forecastRows = await loadMeteoSwissForecast(
-            loadedAt,
+            loadedAt - 24 * 60 * 60 * 1000,
             loadedAt + days * 24 * 60 * 60 * 1000
           );
         } catch (error) {
@@ -901,7 +901,7 @@
 
           if (
             Number.isFinite(timeMs) &&
-            timeMs > fromMs &&
+            timeMs >= fromMs &&
             timeMs <= toMs &&
             temperatureC !== null
           ) {
