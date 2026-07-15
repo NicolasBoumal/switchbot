@@ -816,6 +816,14 @@
           <td>${sensor.name}</td>
           <td>${formatValue(latest[sensor.temperatureKey], "C", 1)}</td>
           <td>${formatValue(latest[sensor.humidityKey], "%", 0)}</td>
+          <td>${formatValue(
+            absoluteHumidityGm3(
+              latest[sensor.temperatureKey],
+              latest[sensor.humidityKey]
+            ),
+            "g/m³",
+            1
+          )}</td>
         </tr>
       `).join("");
 
@@ -825,7 +833,8 @@
             <tr>
               <th>Sensor</th>
               <th>Temperature</th>
-              <th>Humidity</th>
+              <th>Relative humidity</th>
+              <th>Absolute humidity</th>
             </tr>
           </thead>
           <tbody>${cells}</tbody>
@@ -1039,6 +1048,31 @@
 
       const number = Number(value);
       return Number.isFinite(number) ? number : null;
+    }
+
+    function absoluteHumidityGm3(temperatureC, relativeHumidityPct) {
+      const temperature = numberOrNull(temperatureC);
+      const relativeHumidity = numberOrNull(relativeHumidityPct);
+
+      if (
+        temperature === null ||
+        relativeHumidity === null ||
+        temperature <= -243.12 ||
+        relativeHumidity < 0 ||
+        relativeHumidity > 100
+      ) {
+        return null;
+      }
+
+      const saturationVaporPressureHpa = 6.112 * Math.exp(
+        17.62 * temperature / (243.12 + temperature)
+      );
+      const actualVaporPressureHpa = relativeHumidity / 100
+        * saturationVaporPressureHpa;
+      const absoluteHumidity = 216.7 * actualVaporPressureHpa
+        / (273.15 + temperature);
+
+      return Number.isFinite(absoluteHumidity) ? absoluteHumidity : null;
     }
 
     function formatValue(value, unit, digits) {
