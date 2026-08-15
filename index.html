@@ -320,6 +320,7 @@
           "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_t_now.csv",
         ],
         temperatureKey: "tre200s0",
+        humidityKey: "ure200s0",
       },
       hourly: {
         urls: [
@@ -327,6 +328,7 @@
           "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn/puy/ogd-smn_puy_h_now.csv",
         ],
         temperatureKey: "tre200h0",
+        humidityKey: "ure200h0",
       },
       color: "#6d5bd0",
       darkColor: "#c4b5ff",
@@ -630,6 +632,7 @@
 
           meteoSwissRows = loadedRows;
           updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
+          updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
           return null;
         })
         .catch(error => {
@@ -791,25 +794,32 @@
         };
       });
 
-      if (chart === temperatureChart && meteoSwissRows.length > 0) {
-        const data = meteoSwissRows.map(row => ({
-          x: row.timeMs,
-          y: row.temperatureC,
-        }));
+      if (meteoSwissRows.length > 0) {
+        const valueKey = chart === temperatureChart
+          ? "temperatureC"
+          : "humidityPct";
+        const data = meteoSwissRows
+          .map(row => ({
+            x: row.timeMs,
+            y: row[valueKey],
+          }))
+          .filter(point => point.y !== null);
 
-        allValues.push(...data.map(point => point.y));
-        chart.data.datasets.push({
-          label: METEOSWISS_STATION.label,
-          data,
-          borderColor: meteoSwissChartColor(),
-          backgroundColor: meteoSwissChartColor(),
-          borderDash: [6, 4],
-          borderWidth: 2.5,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          spanGaps: true,
-          tension: 0.25,
-        });
+        if (data.length > 0) {
+          allValues.push(...data.map(point => point.y));
+          chart.data.datasets.push({
+            label: METEOSWISS_STATION.label,
+            data,
+            borderColor: meteoSwissChartColor(),
+            backgroundColor: meteoSwissChartColor(),
+            borderDash: [6, 4],
+            borderWidth: 2.5,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            spanGaps: true,
+            tension: 0.25,
+          });
+        }
       }
 
       if (chart === temperatureChart && forecastRows.length > 0) {
@@ -911,14 +921,15 @@
         .forEach(row => {
           const timeMs = parseMeteoSwissTimestamp(row.reference_timestamp);
           const temperatureC = numberOrNull(row[source.temperatureKey]);
+          const humidityPct = numberOrNull(row[source.humidityKey]);
 
           if (
             Number.isFinite(timeMs) &&
             timeMs >= fromMs &&
             timeMs <= toMs &&
-            temperatureC !== null
+            (temperatureC !== null || humidityPct !== null)
           ) {
-            readingsByTime.set(timeMs, { timeMs, temperatureC });
+            readingsByTime.set(timeMs, { timeMs, temperatureC, humidityPct });
           }
         });
 

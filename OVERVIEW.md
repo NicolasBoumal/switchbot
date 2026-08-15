@@ -49,7 +49,7 @@ SwitchBot history is expected as an object containing a `rows` array. Each row u
 
 `normalizeRow()` copies each row and converts `sampled_at_ms` to the internal numeric `timeMs` field. Sensor names, keys, and chart colors live in the `SENSORS` array in `index.html`.
 
-MeteoSwiss observation and forecast rows are reduced to `{ timeMs, temperatureC }`. Observation timestamps are parsed from `DD.MM.YYYY HH:mm`; forecast timestamps use compact UTC `YYYYMMDDHHmm` values.
+MeteoSwiss observation rows are reduced to `{ timeMs, temperatureC, humidityPct }`, while forecast rows contain `{ timeMs, temperatureC }`. Observation timestamps are parsed from `DD.MM.YYYY HH:mm`; forecast timestamps use compact UTC `YYYYMMDDHHmm` values.
 
 ## Worker API client
 
