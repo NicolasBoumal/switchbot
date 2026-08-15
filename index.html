@@ -527,20 +527,6 @@
       },
     };
 
-    const comfortAxisRangePlugin = {
-      id: "comfortAxisRange",
-      beforeUpdate(chart) {
-        updateComfortXAxisRange(chart);
-      },
-    };
-
-    const timeAxisRangePlugin = {
-      id: "timeAxisRange",
-      beforeUpdate(chart) {
-        updateTimeXAxisRange(chart);
-      },
-    };
-
     const rangeButtonsEl = document.getElementById("rangeButtons");
     const themeButton = document.getElementById("themeButton");
     const signInButton = document.getElementById("signInButton");
@@ -946,7 +932,6 @@
         data: {
           datasets: [],
         },
-        plugins: [timeAxisRangePlugin],
         options: {
           animation: false,
           maintainAspectRatio: false,
@@ -958,6 +943,7 @@
           plugins: {
             legend: {
               position: "bottom",
+              onClick: handleLegendClick,
               labels: {
                 boxWidth: 12,
                 boxHeight: 12,
@@ -1011,7 +997,7 @@
         data: {
           datasets: [],
         },
-        plugins: [comfortAxisRangePlugin, comfortBackgroundPlugin],
+        plugins: [comfortBackgroundPlugin],
         options: {
           animation: false,
           maintainAspectRatio: false,
@@ -1024,6 +1010,7 @@
           plugins: {
             legend: {
               position: "bottom",
+              onClick: handleLegendClick,
               labels: {
                 boxWidth: 12,
                 boxHeight: 12,
@@ -1112,6 +1099,7 @@
         };
       });
 
+      updateComfortXAxisRange(comfortChart);
       comfortChart.update();
     }
 
@@ -1220,6 +1208,25 @@
       rangeEl.textContent = allValues.length
         ? `${Math.min(...allValues).toFixed(1)}-${Math.max(...allValues).toFixed(1)} ${unit}`
         : "";
+
+      updateTimeXAxisRange(chart);
+      chart.update();
+    }
+
+    function handleLegendClick(event, legendItem, legend) {
+      const chart = legend.chart;
+      const datasetIndex = legendItem.datasetIndex;
+
+      chart.setDatasetVisibility(
+        datasetIndex,
+        !chart.isDatasetVisible(datasetIndex)
+      );
+
+      if (chart === comfortChart) {
+        updateComfortXAxisRange(chart);
+      } else {
+        updateTimeXAxisRange(chart);
+      }
 
       chart.update();
     }
