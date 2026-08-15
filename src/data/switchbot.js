@@ -24,7 +24,6 @@ async function workerGet(path) {
     method: "GET",
     headers,
   });
-
   const text = await response.text();
 
   let data;
@@ -49,9 +48,7 @@ export function getDevices() {
 }
 
 export function getDeviceStatus(deviceId) {
-  return workerGet(
-    `/devices/${encodeURIComponent(deviceId)}/status`
-  );
+  return workerGet(`/devices/${encodeURIComponent(deviceId)}/status`);
 }
 
 export function getReadings({ from, to, limit = 2000 }) {

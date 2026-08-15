@@ -2,76 +2,142 @@
 
 ## Purpose
 
-This repository contains a single-page dashboard for viewing recent temperature and humidity history from three SwitchBot sensors. It also overlays nearby MeteoSwiss observations and forecasts on the temperature chart.
+This repository contains a static, single-page dashboard for recent temperature
+and humidity readings from three SwitchBot sensors. It also overlays nearby
+MeteoSwiss Pully observations on both time-series charts and a temperature-only
+Morges forecast on the temperature chart.
 
-The app is designed to run directly in a browser as static files. There is no build step, package manager configuration, or local server implementation in this repository, but the app has important runtime dependencies on Firebase, a Cloudflare Worker, Chart.js, and MeteoSwiss services.
+The project deliberately has no framework, build step, or package manager. It is
+plain HTML, CSS, and browser ES modules, with Chart.js and Firebase loaded from
+CDNs. Serve it over HTTP(S); do not rely on opening `index.html` as a `file://`
+URL because browser modules, authentication, and cross-origin requests need an
+HTTP origin.
 
-## Repository structure
+## Source layout
 
-- `index.html` — the entire user interface: HTML markup, CSS, application state, Firebase authentication, Firestore configuration lookup, Chart.js rendering, MeteoSwiss fetching/parsing, theming, and error/loading states.
-- `switchbotapi.js` — a small ES module that configures and calls the Cloudflare Worker API used for SwitchBot devices and historical readings.
-- `OVERVIEW.md` — this architectural reference.
+- `index.html` — semantic page markup and third-party script loading only.
+- `styles.css` — theme tokens, dashboard layout, and responsive phone styles.
+- `main.js` — application coordinator: startup, authentication transitions,
+  progressive source loading, state-to-view updates, and error/loading status.
+- `src/state.js` — factory for the dashboard's mutable in-memory state.
+- `src/config.js` — Firebase public configuration, sensor metadata, MeteoSwiss
+  endpoints/fields, colors, and indoor-comfort assumptions.
+- `src/auth.js` — Firebase initialization, Google sign-in, and validated loading
+  of the SwitchBot Worker access settings from Firestore.
+- `src/data/switchbot.js` — Cloudflare Worker client and history range helpers.
+- `src/data/meteoswiss.js` — observation/forecast fetching and CSV/timestamp
+  parsing.
+- `src/charts/dashboard-charts.js` — owns all three Chart.js instances, datasets,
+  legends, axis ranges/ticks, viewport behavior, and theme updates.
+- `src/charts/comfort-background.js` — draws the PMV contours and shaded comfort
+  region behind the temperature-versus-humidity trajectories.
+- `src/domain/humidity.js` — numeric normalization and absolute-humidity math.
+- `src/domain/thermal-comfort.js` — PMV calculation and comfort-band math.
+- `src/time-axis.js` — time-axis bounds, tick schedules, and compact tick labels.
+- `src/format.js` — display formatting and HTML escaping.
+- `src/ui.js` — range-button and latest-reading-table rendering.
+- `tests/` — Deno regression tests for the pure math, parsing, and axis logic.
+- `AGENTS.md` — durable repository-specific guidance for future coding sessions.
+
+Keep `main.js` focused on orchestration. Data-source details belong in
+`src/data/`, Chart.js details in `src/charts/`, and independently testable
+calculations in `src/domain/` or `src/time-axis.js`.
 
 ## Runtime dependencies and services
 
-All third-party JavaScript is loaded from CDNs in `index.html`:
+- Chart.js renders the three charts.
+- Firebase 10.12.5 provides Google authentication and Firestore access.
+- Firebase project `common-77900` authenticates users.
+- Firestore document `secrets/switchbot` supplies `WORKERURL` and `CLIENTKEY`.
+- The configured Cloudflare Worker returns SwitchBot history and receives the
+  client key in the `X-Client-Key` header.
+- MeteoSwiss Open Government Data CSV/STAC endpoints provide Pully observations
+  and Morges forecasts.
 
-- Chart.js renders the temperature and humidity line charts.
-- Firebase 10.12.5 provides Google sign-in and Firestore access.
+Firebase client configuration is public by design. Actual access must remain
+protected by Firebase Authentication, Firestore security rules, and Worker-side
+validation of `X-Client-Key`.
 
-The app also depends on these external services:
+## Loading flow
 
-- Firebase project `common-77900` for Google authentication and access configuration.
-- Firestore document `secrets/switchbot`, which supplies the Cloudflare Worker URL through its `WORKERURL` field and the corresponding client credential through `CLIENTKEY` after sign-in.
-- The Cloudflare Worker API from which SwitchBot readings are collected. Requests include `X-Client-Key` when a client key is configured.
-- MeteoSwiss Open Government Data CSV/STAC endpoints for Pully observations and Morges forecasts.
+1. A small inline script applies the saved or system theme before rendering.
+2. `main.js` creates the charts, UI controls, central state, and Firebase client.
+3. Firebase attempts Google popup sign-in once; explicit sign-in/sign-out buttons
+   remain available.
+4. On authentication, `src/auth.js` reads and validates `secrets/switchbot`, and
+   `main.js` configures the Worker client.
+5. The 24-hour range loads automatically. Users can request 24 hours, 7 days, or
+   30 days.
+6. SwitchBot history is fetched and rendered first.
+7. Pully observations and the Morges forecast start concurrently. Each source is
+   added to the relevant charts immediately when it arrives; neither waits for
+   the other.
+8. A monotonically increasing load ID prevents late responses from an older range
+   request from overwriting the current view.
 
-Because the page uses an ES module, Firebase authentication, and cross-origin fetches, it should normally be served over HTTP(S), not opened as a `file://` URL.
+MeteoSwiss failures are non-fatal: device data remains visible and the status
+notes that some weather data is unavailable.
 
-## Application flow
+## Data contracts
 
-1. An inline script applies the saved or system color theme before rendering, avoiding a light/dark flash.
-2. The main module creates empty Chart.js charts and initializes Firebase.
-3. Firebase attempts Google popup sign-in once automatically; the header also provides explicit sign-in and sign-out controls.
-4. On authentication, the app reads `secrets/switchbot` from Firestore and passes the retrieved Cloudflare Worker URL and client key to `switchbotapi.js`.
-5. The initial 24-hour range loads automatically. Users can instead request 24 hours, 7 days, or 30 days.
-6. A range load fetches and renders SwitchBot history first. It then fetches MeteoSwiss observations and forecasts concurrently, updating the temperature chart as each source arrives.
-7. MeteoSwiss failures are non-fatal: SwitchBot data remains displayed and the status notes that some weather data is unavailable. Other errors are shown in the latest-reading panel.
+SwitchBot history is an object containing a `rows` array. Each row uses:
 
-## Data model
-
-SwitchBot history is expected as an object containing a `rows` array. Each row uses:
-
-- `sampled_at_ms` — sample timestamp in Unix milliseconds.
+- `sampled_at_ms` — Unix timestamp in milliseconds.
 - `terrace_temp_c` / `terrace_humidity_pct`.
 - `kitchen_temp_c` / `kitchen_humidity_pct`.
 - `bedroom_temp_c` / `bedroom_humidity_pct`.
 
-`normalizeRow()` copies each row and converts `sampled_at_ms` to the internal numeric `timeMs` field. Sensor names, keys, and chart colors live in the `SENSORS` array in `index.html`.
+`normalizeRow()` in `main.js` adds numeric `timeMs` and the rows are sorted before
+rendering.
 
-MeteoSwiss observation rows are reduced to `{ timeMs, temperatureC, humidityPct }`, while forecast rows contain `{ timeMs, temperatureC }`. Observation timestamps are parsed from `DD.MM.YYYY HH:mm`; forecast timestamps use compact UTC `YYYYMMDDHHmm` values.
+One Pully observation download supplies both values. Parsed observations are
+`{ timeMs, temperatureC, humidityPct }`; the important MeteoSwiss fields are:
 
-## Worker API client
+- 10-minute temperature: `tre200s0`.
+- 10-minute relative humidity: `ure200s0`.
+- Hourly temperature: `tre200h0`.
+- Hourly relative humidity: `ure200h0`.
 
-`switchbotapi.js` keeps `workerBase` and `clientKey` as module-level configuration. It exports:
+Do not add another Pully request for humidity. Morges forecasts remain
+temperature-only and produce `{ timeMs, temperatureC }` rows.
 
-- `setWorkerBase()` and `setClientKey()`.
-- `getDevices()` and `getDeviceStatus(deviceId)`.
-- `getReadings({ from, to, limit })`.
-- Convenience loaders for the last 24 hours, 7 days, 30 days, or an arbitrary number of days.
+The CSV parser is intentionally small and assumes semicolon-delimited rows with
+no quoted semicolons or embedded newlines.
 
-The dashboard currently uses only the history convenience loaders. API errors include HTTP status information and the parsed response body when possible.
+## Chart behavior
 
-## UI and state
+The temperature and humidity charts use linear millisecond x-axes without a date
+adapter. Their bounds cover all visible datasets, including forecast points, and
+round outward to half-hour boundaries. Bounds and explicit ticks are recomputed
+after data arrives and after legend toggles. Tick density follows the visible
+span and phone layouts use sparser ticks. Labels use compact clock text, including
+`midnight` and `noon`.
 
-The responsive page has a header, range toolbar, temperature time-series chart, humidity time-series chart, temperature-versus-humidity comfort chart, and latest-reading table. On screens up to 700 px wide, it uses compact range controls and chart legends, shorter chart panels, and abbreviated table headings; the latest-reading panel moves ahead of the charts, and chart tooltips are disabled. The 24-hour range remains the initial and primary phone view. Both time-series x-axes span all currently visible data and round their endpoints outward to half-hour boundaries; bounds and ticks are recomputed before each dataset update and after legend toggles. Time ticks use an explicit span-based schedule, ranging from three-hour desktop ticks for spans up to 30 hours to five-day ticks for spans over 21 days, with sparser phone intervals. Sub-day ticks align to local clock boundaries, daily ticks to local midnight, and weekly phone ticks to Mondays. The comfort chart shows only the three SwitchBot trajectories and omits MeteoSwiss data. Its Terrace trajectory is dashed and hidden by default, but remains available through the legend; Terrace remains visible by default on the time-series charts. Its temperature axis follows the visible sensor data with 2°C padding on each side while always containing 22-27°C, and its humidity axis remains fixed at 0-100%. The comfort chart retains PMV contour lines but shades only the intersection of PMV -0.5 to +0.5 with a practical indoor relative-humidity range of 30-60%. Its PMV calculation assumes mean radiant temperature equals air temperature, air speed 0.1 m/s, activity 1.1 met, and clothing insulation 0.7 clo. The table shows temperature, measured relative humidity, and absolute humidity derived from those two measurements in g/m³. Styling and light/dark theme tokens are embedded in `index.html`; the selected theme is stored under `localStorage.switchbotTheme`.
+The temperature-versus-humidity chart includes only the three SwitchBot sensors.
+The Terrace trajectory is dashed and hidden by default on this chart only. Its
+temperature axis includes all visible sensor data with 2°C of padding on either
+side and always contains 22–27°C; relative humidity stays fixed at 0–100%.
+Tooltips are disabled for this chart.
 
-Important in-memory state includes the loaded SwitchBot rows, MeteoSwiss observation/forecast rows, current range, authorization/loading flags, and the two Chart.js instances. Charts use linear millisecond x-axes and perform locale-aware date/time formatting without a Chart.js date adapter.
+The comfort background shades the intersection of PMV −0.5 to +0.5 and the
+practical indoor relative-humidity range 30–60%. The PMV model assumes mean
+radiant temperature equals air temperature, 0.1 m/s air speed, 1.1 met activity,
+and 0.7 clo clothing. These values live in `COMFORT_ASSUMPTIONS`.
 
-## Maintenance notes
+On screens up to 700 px wide, controls, legends, tables, and chart heights become
+more compact; the latest-reading table moves ahead of the charts; time-series
+tooltips are disabled; and the initial 24-hour view remains the primary view.
 
-- Adding or renaming a sensor requires updating the `SENSORS` configuration and ensuring the Worker response supplies the corresponding fields.
-- Range limits are configured in `RANGES`: 2,000 rows for 24 hours, 12,000 for 7 days, and 45,000 for 30 days.
-- Firebase client configuration is public by design, but access must remain protected by Firebase Authentication, Firestore security rules, and Worker-side validation of `X-Client-Key`.
-- The CSV parser is deliberately simple: it assumes semicolon-delimited data with no quoted semicolons or embedded newlines.
-- There are currently no automated tests, lint rules, build scripts, or deployment configuration in this repository.
+## Local checks
+
+Quarto includes a Deno JavaScript runtime on this machine. It may not be on
+`PATH`; the durable discovery details are recorded in `AGENTS.md`. With the
+bundled executable, run:
+
+```powershell
+& 'C:\Users\nboumal\AppData\Local\Programs\Quarto\bin\tools\x86_64\deno.exe' test tests
+& 'C:\Users\nboumal\AppData\Local\Programs\Quarto\bin\tools\x86_64\deno.exe' check src/charts/dashboard-charts.js src/ui.js src/state.js src/data/switchbot.js
+```
+
+The first command covers pure calculations and parsers. The second checks local
+browser modules that do not require resolving Firebase's remote imports.
