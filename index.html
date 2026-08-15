@@ -382,6 +382,7 @@
     let hasAutoLoadedInitialRange = false;
     let meteoSwissRows = [];
     let forecastRows = [];
+    let activeLoadId = 0;
 
     initializeTheme();
     const loadButtons = renderRangeButtons();
@@ -501,6 +502,7 @@
     }
 
     async function handleAuthState(user, auth, provider, db) {
+      activeLoadId += 1;
       setClientKey("");
       setWorkerBase("");
       isAuthorized = false;
@@ -591,43 +593,22 @@
       currentRangeDays = days;
       setStatus(`Loading ${label}...`);
 
+      const loadId = ++activeLoadId;
       const loadedAt = Date.now();
       const data = await loader();
+
+      if (loadId !== activeLoadId) {
+        return;
+      }
+
       rows = (data.rows ?? [])
         .map(normalizeRow)
         .filter(row => Number.isFinite(row.timeMs))
         .sort((a, b) => a.timeMs - b.timeMs);
 
-      let meteoSwissError = null;
-      let forecastError = null;
-
-      if (days === 1 || days === 7 || days === 30) {
-        try {
-          meteoSwissRows = await loadMeteoSwissReadings(days, loadedAt);
-        } catch (error) {
-          meteoSwissRows = [];
-          meteoSwissError = error;
-          console.warn(error);
-        }
-      } else {
-        meteoSwissRows = [];
-      }
-
-      if (days === 1 || days === 7 || days === 30) {
-        try {
-          forecastRows = await loadMeteoSwissForecast(
-            loadedAt - 24 * 60 * 60 * 1000,
-            loadedAt + days * 24 * 60 * 60 * 1000
-          );
-        } catch (error) {
-          forecastRows = [];
-          forecastError = error;
-          console.warn(error);
-        }
-      } else {
-        forecastRows = [];
-      }
-
+      // Show the fast device readings without waiting for either MeteoSwiss source.
+      meteoSwissRows = [];
+      forecastRows = [];
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
       renderLatestReading();
@@ -637,6 +618,61 @@
       summaryEl.textContent = rows.length && first && last
         ? `${rows.length} readings from ${formatTime(first.timeMs)} to ${formatTime(last.timeMs)}`
         : "No readings found.";
+
+      setStatus(`Device data updated ${formatTime(loadedAt)}; loading MeteoSwiss data...`);
+
+      // Fetch both slower sources concurrently and add each result as soon as it arrives.
+      const meteoSwissPromise = loadMeteoSwissReadings(days, loadedAt)
+        .then(loadedRows => {
+          if (loadId !== activeLoadId) {
+            return null;
+          }
+
+          meteoSwissRows = loadedRows;
+          updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
+          return null;
+        })
+        .catch(error => {
+          if (loadId !== activeLoadId) {
+            return null;
+          }
+
+          meteoSwissRows = [];
+          console.warn(error);
+          return error;
+        });
+
+      const forecastPromise = loadMeteoSwissForecast(
+        loadedAt - 24 * 60 * 60 * 1000,
+        loadedAt + days * 24 * 60 * 60 * 1000
+      )
+        .then(loadedRows => {
+          if (loadId !== activeLoadId) {
+            return null;
+          }
+
+          forecastRows = loadedRows;
+          updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
+          return null;
+        })
+        .catch(error => {
+          if (loadId !== activeLoadId) {
+            return null;
+          }
+
+          forecastRows = [];
+          console.warn(error);
+          return error;
+        });
+
+      const [meteoSwissError, forecastError] = await Promise.all([
+        meteoSwissPromise,
+        forecastPromise,
+      ]);
+
+      if (loadId !== activeLoadId) {
+        return;
+      }
 
       setStatus(
         meteoSwissError || forecastError

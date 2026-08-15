@@ -35,8 +35,8 @@ Because the page uses an ES module, Firebase authentication, and cross-origin fe
 3. Firebase attempts Google popup sign-in once automatically; the header also provides explicit sign-in and sign-out controls.
 4. On authentication, the app reads `secrets/switchbot` from Firestore and passes the retrieved Cloudflare Worker URL and client key to `switchbotapi.js`.
 5. The initial 24-hour range loads automatically. Users can instead request 24 hours, 7 days, or 30 days.
-6. A range load fetches SwitchBot history, MeteoSwiss observations, and a MeteoSwiss forecast; data is normalized and sorted by timestamp before the charts and latest-reading table are updated.
-7. MeteoSwiss failures are non-fatal: SwitchBot data is still displayed and the status notes that some weather data is unavailable. Other errors are shown in the latest-reading panel.
+6. A range load fetches and renders SwitchBot history first. It then fetches MeteoSwiss observations and forecasts concurrently, updating the temperature chart as each source arrives.
+7. MeteoSwiss failures are non-fatal: SwitchBot data remains displayed and the status notes that some weather data is unavailable. Other errors are shown in the latest-reading panel.
 
 ## Data model
 
