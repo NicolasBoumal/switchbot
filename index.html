@@ -827,15 +827,7 @@
               },
             },
             tooltip: {
-              callbacks: {
-                title: items => items.length
-                  ? formatDateTime(items[0].raw.timeMs)
-                  : "",
-                label: item => (
-                  `${item.dataset.label}: ${item.parsed.x.toFixed(1)} C, ` +
-                  `${item.parsed.y.toFixed(0)} %`
-                ),
-              },
+              enabled: false,
             },
           },
           scales: {
