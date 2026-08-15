@@ -898,7 +898,6 @@
         }
 
         chart.options.plugins.tooltip.enabled = !isMobile;
-        chart.options.scales.x.ticks.maxTicksLimit = isMobile ? 4 : 8;
         chart.options.scales.y.title.display = !isMobile;
       });
 
@@ -960,13 +959,18 @@
           scales: {
             x: {
               type: "linear",
+              afterBuildTicks: scale => {
+                scale.ticks = buildTimeTicks(scale.min, scale.max);
+              },
               grid: {
                 color: grid,
               },
               ticks: {
-                callback: value => formatXAxisTick(value),
+                autoSkip: false,
+                callback(value) {
+                  return formatXAxisTick(value, this.min, this.max);
+                },
                 color: muted,
-                maxTicksLimit: 8,
               },
             },
             y: {
@@ -1825,17 +1829,112 @@
       }).format(new Date(timeMs));
     }
 
-    function formatXAxisTick(timeMs) {
-      if (currentRangeDays <= 1) {
+    function buildTimeTicks(minimum, maximum) {
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
+        return [];
+      }
+
+      const interval = timeTickInterval(
+        maximum - minimum,
+        mobileLayoutMedia.matches
+      );
+      const cursor = new Date(minimum);
+
+      if (interval.unit === "hour") {
+        cursor.setMinutes(0, 0, 0);
+        const hourRemainder = cursor.getHours() % interval.step;
+
+        if (hourRemainder !== 0) {
+          cursor.setHours(cursor.getHours() + interval.step - hourRemainder);
+        }
+
+        if (cursor.getTime() < minimum) {
+          cursor.setHours(cursor.getHours() + interval.step);
+        }
+      } else {
+        cursor.setHours(0, 0, 0, 0);
+
+        if (interval.step === 7) {
+          const daysUntilMonday = (8 - cursor.getDay()) % 7;
+          cursor.setDate(cursor.getDate() + daysUntilMonday);
+        }
+
+        if (cursor.getTime() < minimum) {
+          cursor.setDate(cursor.getDate() + (
+            interval.step === 7 ? 7 : 1
+          ));
+        }
+      }
+
+      const ticks = [];
+
+      while (cursor.getTime() <= maximum && ticks.length < 100) {
+        ticks.push({ value: cursor.getTime() });
+
+        if (interval.unit === "hour") {
+          cursor.setHours(cursor.getHours() + interval.step);
+        } else {
+          cursor.setDate(cursor.getDate() + interval.step);
+        }
+      }
+
+      return ticks;
+    }
+
+    function timeTickInterval(spanMs, isMobile) {
+      const hourMs = 60 * 60 * 1000;
+      const dayMs = 24 * hourMs;
+
+      if (spanMs <= 30 * hourMs) {
+        return { unit: "hour", step: isMobile ? 6 : 3 };
+      }
+
+      if (spanMs <= 60 * hourMs) {
+        return { unit: "hour", step: isMobile ? 12 : 6 };
+      }
+
+      if (spanMs <= 4 * dayMs) {
+        return isMobile
+          ? { unit: "day", step: 1 }
+          : { unit: "hour", step: 12 };
+      }
+
+      if (spanMs <= 10 * dayMs) {
+        return { unit: "day", step: isMobile ? 2 : 1 };
+      }
+
+      if (spanMs <= 21 * dayMs) {
+        return { unit: "day", step: isMobile ? 4 : 2 };
+      }
+
+      return { unit: "day", step: isMobile ? 7 : 5 };
+    }
+
+    function formatXAxisTick(timeMs, minimum, maximum) {
+      const spanMs = maximum - minimum;
+      const hourMs = 60 * 60 * 1000;
+      const dayMs = 24 * hourMs;
+      const date = new Date(timeMs);
+
+      if (spanMs <= 30 * hourMs) {
         return formatTime(timeMs);
+      }
+
+      if (spanMs <= 4 * dayMs) {
+        const weekday = new Intl.DateTimeFormat(undefined, {
+          weekday: "short",
+        }).format(date);
+        const time = formatTime(timeMs);
+
+        return mobileLayoutMedia.matches
+          ? [weekday, time]
+          : `${weekday} ${time}`;
       }
 
       return new Intl.DateTimeFormat(undefined, {
         month: "short",
         day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(timeMs));
+      }).format(date);
     }
 
     function formatDateTime(timeMs) {
