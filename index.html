@@ -249,7 +249,7 @@
       <section class="chart-panel" aria-labelledby="comfortTitle">
         <div class="panel-header">
           <h2 id="comfortTitle">Temperature and humidity</h2>
-          <div class="range">Estimated indoor PMV; comfort band -0.5 to +0.5; 0.1 m/s air, 1.1 met, 0.7 clo</div>
+          <div class="range">Indoor comfort: PMV -0.5 to +0.5 and 30-60% RH; 0.1 m/s air, 1.1 met, 0.7 clo</div>
         </div>
         <div class="chart-box">
           <canvas id="comfortChart"></canvas>
@@ -379,6 +379,8 @@
       airSpeedMs: 0.1,
       metabolicRateMet: 1.1,
       clothingClo: 0.7,
+      minimumHumidityPct: 30,
+      maximumHumidityPct: 60,
       contourLevels: [-1, -0.5, 0, 0.5, 1],
     };
 
@@ -885,6 +887,7 @@
         return {
           label: sensor.name,
           data,
+          hidden: sensor.name === "Terrace",
           borderColor: sensorChartColor(sensor),
           backgroundColor: sensorChartColor(sensor),
           borderDash: sensor.name === "Terrace" ? [7, 4] : [],
@@ -1376,10 +1379,27 @@
         return null;
       }
 
-      return {
-        lower: dryPmv >= -0.5 ? 0 : humidityForPmv(temperature, -0.5),
-        upper: humidPmv <= 0.5 ? 100 : humidityForPmv(temperature, 0.5),
-      };
+      const pmvLower = dryPmv >= -0.5
+        ? 0
+        : humidityForPmv(temperature, -0.5);
+      const pmvUpper = humidPmv <= 0.5
+        ? 100
+        : humidityForPmv(temperature, 0.5);
+
+      if (pmvLower === null || pmvUpper === null) {
+        return null;
+      }
+
+      const lower = Math.max(
+        pmvLower,
+        COMFORT_ASSUMPTIONS.minimumHumidityPct
+      );
+      const upper = Math.min(
+        pmvUpper,
+        COMFORT_ASSUMPTIONS.maximumHumidityPct
+      );
+
+      return lower <= upper ? { lower, upper } : null;
     }
 
     function humidityForPmv(temperature, targetPmv) {
