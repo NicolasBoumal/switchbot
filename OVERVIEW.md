@@ -64,7 +64,7 @@ The dashboard currently uses only the history convenience loaders. API errors in
 
 ## UI and state
 
-The responsive page has a header, range toolbar, temperature chart, humidity chart, and latest-reading table. The table shows temperature, measured relative humidity, and absolute humidity derived from those two measurements in g/m³. Styling and light/dark theme tokens are embedded in `index.html`; the selected theme is stored under `localStorage.switchbotTheme`.
+The responsive page has a header, range toolbar, temperature time-series chart, humidity time-series chart, temperature-versus-humidity comfort chart, and latest-reading table. The comfort chart shows only the three SwitchBot trajectories; the terrace is dashed for reference and MeteoSwiss data is omitted. Its PMV background assumes mean radiant temperature equals air temperature, air speed 0.1 m/s, activity 1.1 met, and clothing insulation 0.7 clo. The table shows temperature, measured relative humidity, and absolute humidity derived from those two measurements in g/m³. Styling and light/dark theme tokens are embedded in `index.html`; the selected theme is stored under `localStorage.switchbotTheme`.
 
 Important in-memory state includes the loaded SwitchBot rows, MeteoSwiss observation/forecast rows, current range, authorization/loading flags, and the two Chart.js instances. Charts use linear millisecond x-axes and perform locale-aware date/time formatting without a Chart.js date adapter.
 

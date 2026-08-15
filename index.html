@@ -246,6 +246,16 @@
         </div>
       </section>
 
+      <section class="chart-panel" aria-labelledby="comfortTitle">
+        <div class="panel-header">
+          <h2 id="comfortTitle">Temperature and humidity</h2>
+          <div class="range">Estimated indoor PMV; comfort band -0.5 to +0.5; 0.1 m/s air, 1.1 met, 0.7 clo</div>
+        </div>
+        <div class="chart-box">
+          <canvas id="comfortChart"></canvas>
+        </div>
+      </section>
+
       <section class="latest-panel" aria-labelledby="latestTitle">
         <div class="panel-header">
           <h2 id="latestTitle">Latest logged reading</h2>
@@ -365,6 +375,20 @@
       },
     ];
 
+    const COMFORT_ASSUMPTIONS = {
+      airSpeedMs: 0.1,
+      metabolicRateMet: 1.1,
+      clothingClo: 0.7,
+      contourLevels: [-1, -0.5, 0, 0.5, 1],
+    };
+
+    const comfortBackgroundPlugin = {
+      id: "comfortBackground",
+      beforeDraw(chart) {
+        drawComfortBackground(chart);
+      },
+    };
+
     const rangeButtonsEl = document.getElementById("rangeButtons");
     const themeButton = document.getElementById("themeButton");
     const signInButton = document.getElementById("signInButton");
@@ -379,6 +403,7 @@
     let currentRangeDays = 1;
     let temperatureChart = null;
     let humidityChart = null;
+    let comfortChart = null;
     let isAuthorized = false;
     let hasTriedAutoSignIn = false;
     let hasAutoLoadedInitialRange = false;
@@ -444,7 +469,7 @@
     }
 
     function applyChartTheme() {
-      [temperatureChart, humidityChart].forEach(chart => {
+      [temperatureChart, humidityChart, comfortChart].forEach(chart => {
         if (!chart) {
           return;
         }
@@ -466,6 +491,8 @@
             const color = sensorChartColor(sensor);
             dataset.borderColor = color;
             dataset.backgroundColor = color;
+            dataset.pointBackgroundColor = color;
+            dataset.pointBorderColor = cssVar("--panel");
           }
 
           if (dataset.label === METEOSWISS_STATION.label) {
@@ -513,6 +540,7 @@
       forecastRows = [];
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
+      updateComfortChart();
       renderLatestReading();
 
       signInButton.hidden = Boolean(user);
@@ -613,6 +641,7 @@
       forecastRows = [];
       updateChart(temperatureChart, "temperatureKey", "C", temperatureRangeEl);
       updateChart(humidityChart, "humidityKey", "%", humidityRangeEl);
+      updateComfortChart();
       renderLatestReading();
 
       const first = rows.at(0);
@@ -701,6 +730,7 @@
     function createCharts() {
       temperatureChart = createLineChart("temperatureChart", "Temperature", "C");
       humidityChart = createLineChart("humidityChart", "Humidity", "%");
+      comfortChart = createComfortChart();
       applyChartTheme();
     }
 
@@ -766,6 +796,136 @@
           },
         },
       });
+    }
+
+    function createComfortChart() {
+      const grid = cssVar("--chart-grid");
+      const muted = cssVar("--muted");
+
+      return new Chart(document.getElementById("comfortChart"), {
+        type: "line",
+        data: {
+          datasets: [],
+        },
+        plugins: [comfortBackgroundPlugin],
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          responsive: true,
+          interaction: {
+            axis: "xy",
+            intersect: false,
+            mode: "nearest",
+          },
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: {
+                boxWidth: 12,
+                boxHeight: 12,
+                color: cssVar("--ink"),
+              },
+            },
+            tooltip: {
+              callbacks: {
+                title: items => items.length
+                  ? formatDateTime(items[0].raw.timeMs)
+                  : "",
+                label: item => (
+                  `${item.dataset.label}: ${item.parsed.x.toFixed(1)} C, ` +
+                  `${item.parsed.y.toFixed(0)} %`
+                ),
+              },
+            },
+          },
+          scales: {
+            x: {
+              type: "linear",
+              suggestedMin: 10,
+              suggestedMax: 30,
+              title: {
+                display: true,
+                text: "Temperature (C)",
+                color: muted,
+              },
+              grid: {
+                color: grid,
+              },
+              ticks: {
+                color: muted,
+                maxTicksLimit: 10,
+              },
+            },
+            y: {
+              min: 0,
+              max: 100,
+              position: "right",
+              title: {
+                display: true,
+                text: "Relative humidity (%)",
+                color: muted,
+              },
+              grid: {
+                color: grid,
+              },
+              ticks: {
+                color: muted,
+                maxTicksLimit: 11,
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function updateComfortChart() {
+      comfortChart.data.datasets = SENSORS.map(sensor => {
+        const data = downsampleTrajectory(
+          rows
+            .map(row => ({
+              x: numberOrNull(row[sensor.temperatureKey]),
+              y: numberOrNull(row[sensor.humidityKey]),
+              timeMs: row.timeMs,
+            }))
+            .filter(point => point.x !== null && point.y !== null)
+        );
+
+        return {
+          label: sensor.name,
+          data,
+          borderColor: sensorChartColor(sensor),
+          backgroundColor: sensorChartColor(sensor),
+          borderDash: sensor.name === "Terrace" ? [7, 4] : [],
+          borderWidth: sensor.name === "Terrace" ? 1.5 : 2.25,
+          pointBackgroundColor: sensorChartColor(sensor),
+          pointBorderColor: cssVar("--panel"),
+          pointBorderWidth: 2,
+          pointHoverRadius: 5,
+          pointRadius: context => (
+            context.dataIndex === context.dataset.data.length - 1 ? 4 : 0
+          ),
+          segment: {
+            borderColor: context => colorWithAlpha(
+              sensorChartColor(sensor),
+              0.25 + 0.75 * context.p1DataIndex / Math.max(data.length - 1, 1)
+            ),
+          },
+          spanGaps: true,
+          tension: 0.2,
+        };
+      });
+
+      comfortChart.update();
+    }
+
+    function downsampleTrajectory(points, maxPoints = 1800) {
+      if (points.length <= maxPoints) {
+        return points;
+      }
+
+      return Array.from({ length: maxPoints }, (_, index) => (
+        points[Math.round(index * (points.length - 1) / (maxPoints - 1))]
+      ));
     }
 
     function updateChart(chart, sensorValueKey, unit, rangeEl) {
@@ -1089,6 +1249,261 @@
         : METEOSWISS_FORECAST.color;
     }
 
+    function drawComfortBackground(chart) {
+      const { ctx, chartArea, scales } = chart;
+
+      if (!chartArea || !scales.x || !scales.y) {
+        return;
+      }
+
+      const isDark = document.documentElement.dataset.theme === "dark";
+      const contourColor = isDark
+        ? "rgb(210 225 218 / 42%)"
+        : "rgb(75 89 83 / 42%)";
+      const comfortFill = isDark
+        ? "rgb(65 170 105 / 15%)"
+        : "rgb(65 170 105 / 11%)";
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(
+        chartArea.left,
+        chartArea.top,
+        chartArea.right - chartArea.left,
+        chartArea.bottom - chartArea.top
+      );
+      ctx.clip();
+
+      drawComfortBand(ctx, scales.x, scales.y, comfortFill);
+      COMFORT_ASSUMPTIONS.contourLevels.forEach(level => {
+        drawPmvContour(ctx, scales.x, scales.y, level, contourColor);
+      });
+
+      ctx.restore();
+    }
+
+    function drawComfortBand(ctx, xScale, yScale, fillStyle) {
+      const segments = [];
+      let segment = [];
+      const samples = 160;
+
+      for (let index = 0; index <= samples; index += 1) {
+        const temperature = xScale.min
+          + index / samples * (xScale.max - xScale.min);
+        const range = comfortHumidityRange(temperature);
+
+        if (range) {
+          segment.push({
+            x: xScale.getPixelForValue(temperature),
+            lowerY: yScale.getPixelForValue(range.lower),
+            upperY: yScale.getPixelForValue(range.upper),
+          });
+        } else if (segment.length > 0) {
+          segments.push(segment);
+          segment = [];
+        }
+      }
+
+      if (segment.length > 0) {
+        segments.push(segment);
+      }
+
+      ctx.fillStyle = fillStyle;
+      segments.forEach(points => {
+        if (points.length < 2) {
+          return;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].upperY);
+        points.slice(1).forEach(point => ctx.lineTo(point.x, point.upperY));
+        points.slice().reverse().forEach(point => ctx.lineTo(point.x, point.lowerY));
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function drawPmvContour(ctx, xScale, yScale, level, strokeStyle) {
+      const segments = [];
+      let segment = [];
+      const samples = 200;
+
+      for (let index = 0; index <= samples; index += 1) {
+        const temperature = xScale.min
+          + index / samples * (xScale.max - xScale.min);
+        const humidity = humidityForPmv(temperature, level);
+
+        if (humidity !== null) {
+          segment.push({
+            x: xScale.getPixelForValue(temperature),
+            y: yScale.getPixelForValue(humidity),
+          });
+        } else if (segment.length > 0) {
+          segments.push(segment);
+          segment = [];
+        }
+      }
+
+      if (segment.length > 0) {
+        segments.push(segment);
+      }
+
+      segments.forEach(points => {
+        if (points.length < 2) {
+          return;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        points.slice(1).forEach(point => ctx.lineTo(point.x, point.y));
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = level === 0 ? 1.25 : 0.8;
+        ctx.setLineDash(level === 0 ? [] : [3, 4]);
+        ctx.stroke();
+
+        const labelPoint = points[Math.floor(points.length / 2)];
+        ctx.fillStyle = strokeStyle;
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(formatPmvLevel(level), labelPoint.x + 4, labelPoint.y - 3);
+      });
+
+      ctx.setLineDash([]);
+    }
+
+    function comfortHumidityRange(temperature) {
+      const dryPmv = estimatedPmv(temperature, 0);
+      const humidPmv = estimatedPmv(temperature, 100);
+
+      if (
+        dryPmv === null ||
+        humidPmv === null ||
+        humidPmv < -0.5 ||
+        dryPmv > 0.5
+      ) {
+        return null;
+      }
+
+      return {
+        lower: dryPmv >= -0.5 ? 0 : humidityForPmv(temperature, -0.5),
+        upper: humidPmv <= 0.5 ? 100 : humidityForPmv(temperature, 0.5),
+      };
+    }
+
+    function humidityForPmv(temperature, targetPmv) {
+      let lower = 0;
+      let upper = 100;
+      const lowerPmv = estimatedPmv(temperature, lower);
+      const upperPmv = estimatedPmv(temperature, upper);
+
+      if (
+        lowerPmv === null ||
+        upperPmv === null ||
+        targetPmv < lowerPmv ||
+        targetPmv > upperPmv
+      ) {
+        return null;
+      }
+
+      for (let iteration = 0; iteration < 18; iteration += 1) {
+        const middle = (lower + upper) / 2;
+        const middlePmv = estimatedPmv(temperature, middle);
+
+        if (middlePmv < targetPmv) {
+          lower = middle;
+        } else {
+          upper = middle;
+        }
+      }
+
+      return (lower + upper) / 2;
+    }
+
+    function estimatedPmv(temperature, relativeHumidity) {
+      const radiantTemperature = temperature;
+      const airSpeed = COMFORT_ASSUMPTIONS.airSpeedMs;
+      const metabolicRate = COMFORT_ASSUMPTIONS.metabolicRateMet;
+      const clothing = COMFORT_ASSUMPTIONS.clothingClo;
+      const vaporPressure = relativeHumidity * 10
+        * Math.exp(16.6536 - 4030.183 / (temperature + 235));
+      const clothingInsulation = 0.155 * clothing;
+      const metabolism = metabolicRate * 58.15;
+      const internalHeat = metabolism;
+      const clothingAreaFactor = clothingInsulation <= 0.078
+        ? 1 + 1.29 * clothingInsulation
+        : 1.05 + 0.645 * clothingInsulation;
+      const forcedConvection = 12.1 * Math.sqrt(airSpeed);
+      const airKelvin = temperature + 273;
+      const radiantKelvin = radiantTemperature + 273;
+      const initialClothingTemperature = airKelvin
+        + (35.5 - temperature) / (3.5 * clothingInsulation + 0.1);
+      const p1 = clothingInsulation * clothingAreaFactor;
+      const p2 = p1 * 3.96;
+      const p3 = p1 * 100;
+      const p4 = p1 * airKelvin;
+      const p5 = 308.7 - 0.028 * internalHeat
+        + p2 * Math.pow(radiantKelvin / 100, 4);
+      let clothingTemperature = initialClothingTemperature / 100;
+      let previous = initialClothingTemperature / 50;
+      let convection = forcedConvection;
+      let iterations = 0;
+
+      while (Math.abs(clothingTemperature - previous) > 0.00015) {
+        previous = (previous + clothingTemperature) / 2;
+        const naturalConvection = 2.38
+          * Math.pow(Math.abs(100 * previous - airKelvin), 0.25);
+        convection = Math.max(forcedConvection, naturalConvection);
+        clothingTemperature = (
+          p5 + p4 * convection - p2 * Math.pow(previous, 4)
+        ) / (100 + p3 * convection);
+        iterations += 1;
+
+        if (iterations > 150) {
+          return null;
+        }
+      }
+
+      const clothingSurfaceC = 100 * clothingTemperature - 273;
+      const skinDiffusion = 3.05 * 0.001
+        * (5733 - 6.99 * internalHeat - vaporPressure);
+      const sweating = internalHeat > 58.15
+        ? 0.42 * (internalHeat - 58.15)
+        : 0;
+      const latentRespiration = 1.7 * 0.00001 * metabolism
+        * (5867 - vaporPressure);
+      const dryRespiration = 0.0014 * metabolism * (34 - temperature);
+      const radiation = 3.96 * clothingAreaFactor * (
+        Math.pow(clothingTemperature, 4)
+        - Math.pow(radiantKelvin / 100, 4)
+      );
+      const convectionLoss = clothingAreaFactor * convection
+        * (clothingSurfaceC - temperature);
+      const thermalSensationTransfer = 0.303
+        * Math.exp(-0.036 * metabolism) + 0.028;
+
+      return thermalSensationTransfer * (
+        internalHeat - skinDiffusion - sweating - latentRespiration
+        - dryRespiration - radiation - convectionLoss
+      );
+    }
+
+    function formatPmvLevel(level) {
+      if (level > 0) {
+        return `PMV +${level}`;
+      }
+
+      return `PMV ${level}`;
+    }
+
+    function colorWithAlpha(hexColor, alpha) {
+      const value = hexColor.replace("#", "");
+      const red = Number.parseInt(value.slice(0, 2), 16);
+      const green = Number.parseInt(value.slice(2, 4), 16);
+      const blue = Number.parseInt(value.slice(4, 6), 16);
+
+      return `rgb(${red} ${green} ${blue} / ${alpha})`;
+    }
+
     function numberOrNull(value) {
       if (value === null || value === undefined || value === "") {
         return null;
@@ -1167,6 +1582,7 @@
     window.addEventListener("beforeunload", () => {
       temperatureChart?.destroy();
       humidityChart?.destroy();
+      comfortChart?.destroy();
     });
   </script>
 </body>
