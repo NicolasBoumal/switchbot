@@ -76,6 +76,14 @@
       margin-bottom: 18px;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
     h1 {
       margin: 0;
       font-size: clamp(1.5rem, 2.5vw, 2.25rem);
@@ -100,6 +108,12 @@
     button:disabled {
       cursor: wait;
       opacity: 0.65;
+    }
+
+    .button-group button[aria-pressed="true"] {
+      background: var(--button-hover);
+      border-color: var(--ink);
+      font-weight: 650;
     }
 
     .button-group {
@@ -189,21 +203,135 @@
       color: var(--error);
     }
 
+    .mobile-only {
+      display: none;
+    }
+
     @media (max-width: 700px) {
       main {
-        width: min(100% - 20px, 1180px);
-        padding-top: 18px;
+        width: calc(100% - 12px);
+        padding: 10px 0 20px;
       }
 
-      header,
-      .toolbar,
-      .panel-header {
-        align-items: start;
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      h1 {
+        font-size: 1.25rem;
+      }
+
+      button {
+        min-height: 44px;
+        padding: 0.45rem 0.6rem;
+      }
+
+      .auth-actions {
+        grid-column: 1 / -1;
+        justify-content: end;
+        gap: 6px;
+      }
+
+      .auth-actions .status {
+        max-width: 190px;
+        text-align: right;
+      }
+
+      .header-actions {
+        display: contents;
+      }
+
+      #themeButton {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .toolbar {
+        align-items: stretch;
         flex-direction: column;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      .button-group {
+        flex-wrap: nowrap;
+        gap: 6px;
+        width: 100%;
+      }
+
+      .button-group button {
+        flex: 1 1 0;
+      }
+
+      .toolbar > .range {
+        min-height: 1.25rem;
+      }
+
+      .dashboard {
+        gap: 10px;
+      }
+
+      .chart-panel,
+      .latest-panel {
+        border-radius: 7px;
+        padding: 10px;
+      }
+
+      .latest-panel {
+        order: -1;
+      }
+
+      .panel-header {
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 3px 8px;
+        margin-bottom: 6px;
+      }
+
+      .panel-header .range {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      #comfortTitle + .range {
+        width: 100%;
+      }
+
+      h2 {
+        font-size: 1rem;
       }
 
       .chart-box {
-        height: 280px;
+        height: 250px;
+      }
+
+      table {
+        font-size: 0.84rem;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        padding: 0.45rem 0.2rem;
+        text-align: right;
+      }
+
+      th:first-child,
+      td:first-child {
+        text-align: left;
+        width: 28%;
+      }
+
+      .desktop-only {
+        display: none;
+      }
+
+      .mobile-only {
+        display: inline;
       }
     }
   </style>
@@ -212,11 +340,13 @@
   <main>
     <header>
       <h1>SwitchBot history</h1>
-      <div class="auth-actions">
+      <div class="header-actions">
         <button id="themeButton" type="button" aria-pressed="false">Dark</button>
-        <button id="signInButton" type="button">Sign in</button>
-        <button id="signOutButton" type="button" hidden>Sign out</button>
-        <div class="status" id="status">Sign in to load readings</div>
+        <div class="auth-actions">
+          <button id="signInButton" type="button">Sign in</button>
+          <button id="signOutButton" type="button" hidden>Sign out</button>
+          <div class="status" id="status">Sign in to load readings</div>
+        </div>
       </div>
     </header>
 
@@ -228,7 +358,7 @@
     <section class="dashboard">
       <section class="chart-panel" aria-labelledby="temperatureTitle">
         <div class="panel-header">
-          <h2 id="temperatureTitle">Temperature</h2>
+          <h2 id="temperatureTitle">Temperature <span class="mobile-only">(C)</span></h2>
           <div class="range" id="temperatureRange"></div>
         </div>
         <div class="chart-box">
@@ -238,7 +368,7 @@
 
       <section class="chart-panel" aria-labelledby="humidityTitle">
         <div class="panel-header">
-          <h2 id="humidityTitle">Humidity</h2>
+          <h2 id="humidityTitle">Humidity <span class="mobile-only">(%)</span></h2>
           <div class="range" id="humidityRange"></div>
         </div>
         <div class="chart-box">
@@ -249,7 +379,10 @@
       <section class="chart-panel" aria-labelledby="comfortTitle">
         <div class="panel-header">
           <h2 id="comfortTitle">Temperature and humidity</h2>
-          <div class="range">Indoor comfort: PMV -0.5 to +0.5 and 30-60% RH; 0.1 m/s air, 1.1 met, 0.7 clo</div>
+          <div class="range">
+            <span class="desktop-only">Indoor comfort: PMV -0.5 to +0.5 and 30-60% RH; 0.1 m/s air, 1.1 met, 0.7 clo</span>
+            <span class="mobile-only">Temperature (C) × RH (%); PMV -0.5 to +0.5; 30-60% RH</span>
+          </div>
         </div>
         <div class="chart-box">
           <canvas id="comfortChart"></canvas>
@@ -358,18 +491,21 @@
       {
         label: "last 24 hours",
         buttonText: "Load last 24 hours",
+        shortButtonText: "24h",
         days: 1,
         loader: () => getReadingsLast24Hours({ limit: 2000 }),
       },
       {
         label: "last 7 days",
         buttonText: "Load last 7 days",
+        shortButtonText: "7d",
         days: 7,
         loader: () => getReadingsLast7Days({ limit: 12000 }),
       },
       {
         label: "last 30 days",
         buttonText: "Load last 30 days",
+        shortButtonText: "30d",
         days: 30,
         loader: () => getReadingsLast30Days({ limit: 45000 }),
       },
@@ -400,6 +536,7 @@
     const latestReadingEl = document.getElementById("latestReading");
     const temperatureRangeEl = document.getElementById("temperatureRange");
     const humidityRangeEl = document.getElementById("humidityRange");
+    const mobileLayoutMedia = window.matchMedia("(max-width: 700px)");
 
     let rows = [];
     let currentRangeDays = 1;
@@ -416,6 +553,7 @@
     initializeTheme();
     const loadButtons = renderRangeButtons();
     createCharts();
+    mobileLayoutMedia.addEventListener("change", applyChartViewport);
     setLoading(true);
     initializeFirebaseAuth();
 
@@ -623,6 +761,9 @@
 
       setLoading(true);
       currentRangeDays = days;
+      loadButtons.forEach((button, index) => {
+        button.setAttribute("aria-pressed", String(RANGES[index].days === days));
+      });
       setStatus(`Loading ${label}...`);
 
       const loadId = ++activeLoadId;
@@ -720,7 +861,18 @@
       return RANGES.map(range => {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = range.buttonText;
+        button.setAttribute("aria-label", range.buttonText);
+        button.setAttribute("aria-pressed", String(range.days === currentRangeDays));
+
+        const desktopLabel = document.createElement("span");
+        desktopLabel.className = "desktop-only";
+        desktopLabel.textContent = range.buttonText;
+
+        const mobileLabel = document.createElement("span");
+        mobileLabel.className = "mobile-only";
+        mobileLabel.textContent = range.shortButtonText;
+
+        button.append(desktopLabel, mobileLabel);
         button.addEventListener("click", () => {
           loadHistory(range).catch(showError);
         });
@@ -734,6 +886,41 @@
       humidityChart = createLineChart("humidityChart", "Humidity", "%");
       comfortChart = createComfortChart();
       applyChartTheme();
+      applyChartViewport();
+    }
+
+    function applyChartViewport() {
+      const isMobile = mobileLayoutMedia.matches;
+
+      [temperatureChart, humidityChart].forEach(chart => {
+        if (!chart) {
+          return;
+        }
+
+        chart.options.plugins.tooltip.enabled = !isMobile;
+        chart.options.scales.x.ticks.maxTicksLimit = isMobile ? 4 : 8;
+        chart.options.scales.y.title.display = !isMobile;
+      });
+
+      if (comfortChart) {
+        comfortChart.options.scales.x.ticks.maxTicksLimit = isMobile ? 5 : 10;
+        comfortChart.options.scales.y.ticks.maxTicksLimit = isMobile ? 6 : 11;
+        comfortChart.options.scales.x.title.display = !isMobile;
+        comfortChart.options.scales.y.title.display = !isMobile;
+      }
+
+      [temperatureChart, humidityChart, comfortChart].forEach(chart => {
+        if (!chart) {
+          return;
+        }
+
+        const labels = chart.options.plugins.legend.labels;
+        labels.boxWidth = isMobile ? 9 : 12;
+        labels.boxHeight = isMobile ? 9 : 12;
+        labels.padding = isMobile ? 8 : 10;
+        labels.font = { size: isMobile ? 10 : 12 };
+        chart.update("none");
+      });
     }
 
     function createLineChart(canvasId, label, unit) {
@@ -1034,9 +1221,9 @@
           <thead>
             <tr>
               <th>Sensor</th>
-              <th>Temperature</th>
-              <th>Relative humidity</th>
-              <th>Absolute humidity</th>
+              <th><span class="desktop-only">Temperature</span><span class="mobile-only">C</span></th>
+              <th><span class="desktop-only">Relative humidity</span><span class="mobile-only">RH</span></th>
+              <th><span class="desktop-only">Absolute humidity</span><span class="mobile-only">g/m³</span></th>
             </tr>
           </thead>
           <tbody>${cells}</tbody>
